@@ -1,0 +1,534 @@
+{
+  "window": "2021-04-01..2021-06-30",
+  "as_of": "2021-06-30T00:00:00Z",
+  "hit_definition": "post-T Show HN with >= 100 points",
+  "cohort_size": 400,
+  "base_rate": 0.105,
+  "top_decile_size": 40,
+  "precision_at_top_decile": 0.275,
+  "lift": 2.62,
+  "mean_score_hits": 41.5,
+  "mean_score_misses": 27.8,
+  "top_decile": [
+    {
+      "name": "atum47",
+      "score_at_t": 88.8,
+      "outcome": {
+        "post_t_launches": 57,
+        "best_post_t_points": 155,
+        "hit": true
+      }
+    },
+    {
+      "name": "codr7",
+      "score_at_t": 87.8,
+      "outcome": {
+        "post_t_launches": 36,
+        "best_post_t_points": 144,
+        "hit": true
+      }
+    },
+    {
+      "name": "alexellisuk",
+      "score_at_t": 87.7,
+      "outcome": {
+        "post_t_launches": 26,
+        "best_post_t_points": 123,
+        "hit": true
+      }
+    },
+    {
+      "name": "bilater",
+      "score_at_t": 86.0,
+      "outcome": {
+        "post_t_launches": 69,
+        "best_post_t_points": 142,
+        "hit": true
+      }
+    },
+    {
+      "name": "soheil",
+      "score_at_t": 85.5,
+      "outcome": {
+        "post_t_launches": 49,
+        "best_post_t_points": 134,
+        "hit": true
+      }
+    },
+    {
+      "name": "alexrustic",
+      "score_at_t": 81.5,
+      "outcome": {
+        "post_t_launches": 22,
+        "best_post_t_points": 48,
+        "hit": false
+      }
+    },
+    {
+      "name": "tiagorbf",
+      "score_at_t": 76.7,
+      "outcome": {
+        "post_t_launches": 4,
+        "best_post_t_points": 7,
+        "hit": false
+      }
+    },
+    {
+      "name": "catchmeifyoucan",
+      "score_at_t": 76.7,
+      "outcome": {
+        "post_t_launches": 4,
+        "best_post_t_points": 3,
+        "hit": false
+      }
+    },
+    {
+      "name": "breck",
+      "score_at_t": 73.0,
+      "outcome": {
+        "post_t_launches": 58,
+        "best_post_t_points": 96,
+        "hit": false
+      }
+    },
+    {
+      "name": "djyde",
+      "score_at_t": 69.7,
+      "outcome": {
+        "post_t_launches": 14,
+        "best_post_t_points": 24,
+        "hit": false
+      }
+    },
+    {
+      "name": "khangnd",
+      "score_at_t": 68.7,
+      "outcome": {
+        "post_t_launches": 5,
+        "best_post_t_points": 174,
+        "hit": true
+      }
+    },
+    {
+      "name": "docuru",
+      "score_at_t": 67.9,
+      "outcome": {
+        "post_t_launches": 30,
+        "best_post_t_points": 101,
+        "hit": true
+      }
+    },
+    {
+      "name": "vicjicama",
+      "score_at_t": 67.7,
+      "outcome": {
+        "post_t_launches": 4,
+        "best_post_t_points": 7,
+        "hit": false
+      }
+    },
+    {
+      "name": "Mike_Andreuzza",
+      "score_at_t": 67.2,
+      "outcome": {
+        "post_t_launches": 20,
+        "best_post_t_points": 11,
+        "hit": false
+      }
+    },
+    {
+      "name": "OtmaneBenazzou",
+      "score_at_t": 65.3,
+      "outcome": {
+        "post_t_launches": 2,
+        "best_post_t_points": 3,
+        "hit": false
+      }
+    },
+    {
+      "name": "developeron29",
+      "score_at_t": 62.4,
+      "outcome": {
+        "post_t_launches": 2,
+        "best_post_t_points": 2,
+        "hit": false
+      }
+    },
+    {
+      "name": "nadermx",
+      "score_at_t": 62.3,
+      "outcome": {
+        "post_t_launches": 53,
+        "best_post_t_points": 100,
+        "hit": true
+      }
+    },
+    {
+      "name": "growthunter",
+      "score_at_t": 61.5,
+      "outcome": {
+        "post_t_launches": 3,
+        "best_post_t_points": 4,
+        "hit": false
+      }
+    },
+    {
+      "name": "tpkahlon",
+      "score_at_t": 60.9,
+      "outcome": {
+        "post_t_launches": 11,
+        "best_post_t_points": 19,
+        "hit": false
+      }
+    },
+    {
+      "name": "astlouis44",
+      "score_at_t": 57.9,
+      "outcome": {
+        "post_t_launches": 7,
+        "best_post_t_points": 63,
+        "hit": false
+      }
+    },
+    {
+      "name": "hubraumhugo",
+      "score_at_t": 57.4,
+      "outcome": {
+        "post_t_launches": 34,
+        "best_post_t_points": 313,
+        "hit": true
+      }
+    },
+    {
+      "name": "stopachka",
+      "score_at_t": 55.7,
+      "outcome": {
+        "post_t_launches": 5,
+        "best_post_t_points": 116,
+        "hit": true
+      }
+    },
+    {
+      "name": "gajus",
+      "score_at_t": 55.5,
+      "outcome": {
+        "post_t_launches": 12,
+        "best_post_t_points": 11,
+        "hit": false
+      }
+    },
+    {
+      "name": "yamafaktory",
+      "score_at_t": 55.0,
+      "outcome": {
+        "post_t_launches": 26,
+        "best_post_t_points": 65,
+        "hit": false
+      }
+    },
+    {
+      "name": "plondon514",
+      "score_at_t": 54.6,
+      "outcome": {
+        "post_t_launches": 15,
+        "best_post_t_points": 11,
+        "hit": false
+      }
+    },
+    {
+      "name": "mrkn1",
+      "score_at_t": 53.7,
+      "outcome": {
+        "post_t_launches": 23,
+        "best_post_t_points": 97,
+        "hit": false
+      }
+    },
+    {
+      "name": "0d8556",
+      "score_at_t": 53.3,
+      "outcome": {
+        "post_t_launches": 1,
+        "best_post_t_points": 1,
+        "hit": false
+      }
+    },
+    {
+      "name": "waldekm",
+      "score_at_t": 51.7,
+      "outcome": {
+        "post_t_launches": 1,
+        "best_post_t_points": 2,
+        "hit": false
+      }
+    },
+    {
+      "name": "binkHN",
+      "score_at_t": 51.1,
+      "outcome": {
+        "post_t_launches": 5,
+        "best_post_t_points": 11,
+        "hit": false
+      }
+    },
+    {
+      "name": "txthinking",
+      "score_at_t": 50.6,
+      "outcome": {
+        "post_t_launches": 5,
+        "best_post_t_points": 17,
+        "hit": false
+      }
+    },
+    {
+      "name": "pickledcods",
+      "score_at_t": 50.5,
+      "outcome": {
+        "post_t_launches": 0,
+        "best_post_t_points": 0,
+        "hit": false
+      }
+    },
+    {
+      "name": "vicke4",
+      "score_at_t": 50.3,
+      "outcome": {
+        "post_t_launches": 3,
+        "best_post_t_points": 2,
+        "hit": false
+      }
+    },
+    {
+      "name": "areichert",
+      "score_at_t": 50.1,
+      "outcome": {
+        "post_t_launches": 10,
+        "best_post_t_points": 12,
+        "hit": false
+      }
+    },
+    {
+      "name": "siddharthb_",
+      "score_at_t": 50.1,
+      "outcome": {
+        "post_t_launches": 0,
+        "best_post_t_points": 0,
+        "hit": false
+      }
+    },
+    {
+      "name": "krehwell",
+      "score_at_t": 48.5,
+      "outcome": {
+        "post_t_launches": 1,
+        "best_post_t_points": 4,
+        "hit": false
+      }
+    },
+    {
+      "name": "uncertainquark",
+      "score_at_t": 48.5,
+      "outcome": {
+        "post_t_launches": 6,
+        "best_post_t_points": 25,
+        "hit": false
+      }
+    },
+    {
+      "name": "amadeuspagel",
+      "score_at_t": 47.9,
+      "outcome": {
+        "post_t_launches": 27,
+        "best_post_t_points": 229,
+        "hit": true
+      }
+    },
+    {
+      "name": "roschdal",
+      "score_at_t": 47.8,
+      "outcome": {
+        "post_t_launches": 15,
+        "best_post_t_points": 7,
+        "hit": false
+      }
+    },
+    {
+      "name": "ecesena",
+      "score_at_t": 47.8,
+      "outcome": {
+        "post_t_launches": 5,
+        "best_post_t_points": 5,
+        "hit": false
+      }
+    },
+    {
+      "name": "prashantgupta24",
+      "score_at_t": 46.5,
+      "outcome": {
+        "post_t_launches": 0,
+        "best_post_t_points": 0,
+        "hit": false
+      }
+    }
+  ],
+  "false_positives": [
+    {
+      "name": "alexrustic",
+      "score_at_t": 81.5
+    },
+    {
+      "name": "tiagorbf",
+      "score_at_t": 76.7
+    },
+    {
+      "name": "catchmeifyoucan",
+      "score_at_t": 76.7
+    },
+    {
+      "name": "breck",
+      "score_at_t": 73.0
+    },
+    {
+      "name": "djyde",
+      "score_at_t": 69.7
+    },
+    {
+      "name": "vicjicama",
+      "score_at_t": 67.7
+    },
+    {
+      "name": "Mike_Andreuzza",
+      "score_at_t": 67.2
+    },
+    {
+      "name": "OtmaneBenazzou",
+      "score_at_t": 65.3
+    },
+    {
+      "name": "developeron29",
+      "score_at_t": 62.4
+    },
+    {
+      "name": "growthunter",
+      "score_at_t": 61.5
+    },
+    {
+      "name": "tpkahlon",
+      "score_at_t": 60.9
+    },
+    {
+      "name": "astlouis44",
+      "score_at_t": 57.9
+    },
+    {
+      "name": "gajus",
+      "score_at_t": 55.5
+    },
+    {
+      "name": "yamafaktory",
+      "score_at_t": 55.0
+    },
+    {
+      "name": "plondon514",
+      "score_at_t": 54.6
+    },
+    {
+      "name": "mrkn1",
+      "score_at_t": 53.7
+    },
+    {
+      "name": "0d8556",
+      "score_at_t": 53.3
+    },
+    {
+      "name": "waldekm",
+      "score_at_t": 51.7
+    },
+    {
+      "name": "binkHN",
+      "score_at_t": 51.1
+    },
+    {
+      "name": "txthinking",
+      "score_at_t": 50.6
+    },
+    {
+      "name": "pickledcods",
+      "score_at_t": 50.5
+    },
+    {
+      "name": "vicke4",
+      "score_at_t": 50.3
+    },
+    {
+      "name": "areichert",
+      "score_at_t": 50.1
+    },
+    {
+      "name": "siddharthb_",
+      "score_at_t": 50.1
+    },
+    {
+      "name": "krehwell",
+      "score_at_t": 48.5
+    },
+    {
+      "name": "uncertainquark",
+      "score_at_t": 48.5
+    },
+    {
+      "name": "roschdal",
+      "score_at_t": 47.8
+    },
+    {
+      "name": "ecesena",
+      "score_at_t": 47.8
+    },
+    {
+      "name": "prashantgupta24",
+      "score_at_t": 46.5
+    }
+  ],
+  "missed_hits_below_median": [
+    {
+      "name": "GabeK0",
+      "score_at_t": 22.7,
+      "best_post_t_points": 102
+    },
+    {
+      "name": "quackduck",
+      "score_at_t": 22.4,
+      "best_post_t_points": 391
+    },
+    {
+      "name": "alongub",
+      "score_at_t": 20.8,
+      "best_post_t_points": 106
+    },
+    {
+      "name": "hassanahmad",
+      "score_at_t": 20.5,
+      "best_post_t_points": 316
+    },
+    {
+      "name": "westcort",
+      "score_at_t": 20.5,
+      "best_post_t_points": 266
+    },
+    {
+      "name": "zorggish",
+      "score_at_t": 20.0,
+      "best_post_t_points": 128
+    },
+    {
+      "name": "jessedrain",
+      "score_at_t": 19.9,
+      "best_post_t_points": 140
+    },
+    {
+      "name": "ckmar",
+      "score_at_t": 18.1,
+      "best_post_t_points": 112
+    }
+  ]
+}
