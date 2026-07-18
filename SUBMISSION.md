@@ -26,9 +26,11 @@ public sources (GitHub, Hacker News, arXiv, the YC directory, Devpost) stream
 into deterministic entity resolution — one human across all platforms. The persistent Founder Score is a fold over timestamped
 events: it trends, time-travels (--as-of), never resets, and every component
 cites the exact events behind it. Inbound applications merge with profiles the
-outbound scanner already built — "we already knew you." Screening runs three
-axis agents (Founder / Market / Idea) on disjoint evidence slices, never
-averaged. An adversarial validator assigns per-claim Trust Scores. A
+outbound scanner already built — "we already knew you." An investor-editable
+Thesis Engine (sectors, risk appetite, check size, disqualifiers) filters and
+re-ranks everything through the fund lens — flip the thesis, watch the same
+pool reorder. Screening runs three axis agents (Founder / Market / Idea) on
+disjoint evidence slices, never averaged. An adversarial validator assigns per-claim Trust Scores. A
 deterministic rule — not the LLM — makes the $100K call inside 24 hours.
 
 ## Unique Selling Proposition (~60 words)
