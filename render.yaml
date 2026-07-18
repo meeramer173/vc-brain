@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: vc-brain
+    runtime: python
+    plan: free
+    buildCommand: pip install .
+    startCommand: bash render_start.sh
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: OPENAI_API_KEY
+        sync: false  # set in the Render dashboard, never in git
