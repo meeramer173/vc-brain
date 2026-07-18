@@ -97,12 +97,18 @@ def _score_at(events: list[dict], as_of: datetime) -> tuple[dict, dict]:
 
 
 def founder_score(
-    conn: sqlite3.Connection, entity_id: int, as_of: str | None = None
+    conn: sqlite3.Connection,
+    entity_id: int,
+    as_of: str | None = None,
+    events: list[dict] | None = None,
 ) -> Breakdown:
+    """`events`, when provided, must already respect the as_of cutoff —
+    used by callers that fetch once and score + thesis-fit in one pass."""
     as_of = as_of or ledger.utcnow_iso()
     as_of_dt = ledger.parse_ts(as_of)
 
-    events = ledger.events_for(conn, entity_id, as_of=as_of)
+    if events is None:
+        events = ledger.events_for(conn, entity_id, as_of=as_of)
     norms, evidence = _score_at(events, as_of_dt)
     components = {k: round(norms[k] * WEIGHTS[k], 1) for k in WEIGHTS}
     total = round(sum(components.values()), 1)

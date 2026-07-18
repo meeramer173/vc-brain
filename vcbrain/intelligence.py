@@ -22,6 +22,8 @@ import httpx
 from dotenv import load_dotenv
 
 from . import db, ledger, score
+from . import thesis as thesis_mod
+from .thesis import load_thesis
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -29,25 +31,6 @@ load_dotenv(ROOT / ".env")
 API = "https://api.openai.com/v1/chat/completions"
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 EVIDENCE_CAP = 40
-
-THESIS_FILE = ROOT / "thesis.json"
-DEFAULT_THESIS = {
-    "fund_name": "Maschmeyer Group — demo thesis",
-    "sectors": ["AI infrastructure", "developer tools", "applied AI"],
-    "stage": "pre-seed / first check",
-    "geography": "global, remote-friendly",
-    "check_size_usd": 100000,
-    "ownership_target": "SAFE, uncapped-friendly at this size",
-    "risk_appetite": "high — betting on people before track record",
-    "disqualifiers": ["crypto/token projects", "pure consultancy"],
-}
-
-
-def load_thesis() -> dict:
-    if THESIS_FILE.exists():
-        return json.loads(THESIS_FILE.read_text())
-    THESIS_FILE.write_text(json.dumps(DEFAULT_THESIS, indent=2))
-    return DEFAULT_THESIS
 
 
 def _llm(system: str, user: str, max_tokens: int = 2000) -> dict:
@@ -201,28 +184,44 @@ def validate(memo: dict, events: list[dict]) -> dict:
     )
 
 
-def decide(breakdown, axes: dict, validation: dict) -> dict:
-    """Deterministic decision rule — the LLM never makes this call."""
+def decide(breakdown, axes: dict, validation: dict, thesis: dict, fit) -> dict:
+    """Deterministic decision rule — the LLM never makes this call.
+    The thesis parameterizes the bars: risk appetite sets thresholds,
+    disqualifiers and sector fit gate the outcome, check size sets the amount."""
+    bars = thesis_mod.decision_bars(thesis)
     contradicted = [v for v in validation.get("verdicts", [])
                     if v.get("verdict") == "contradicted"]
     f, m, i = axes["founder"], axes["market"], axes["idea"]
     reasons = []
-    if f.get("score", 0) < 6:
-        reasons.append(f"founder axis {f.get('score')}/10 below bar (6)")
+    if fit.disqualified:
+        reasons.append(f"matches thesis disqualifier(s): {', '.join(fit.disqualified)}")
+    if f.get("score", 0) < bars["founder_bar"]:
+        reasons.append(f"founder axis {f.get('score')}/10 below bar ({bars['founder_bar']})")
     if m.get("rating") == "bear":
         reasons.append("market axis is bear")
-    if i.get("score", 0) < 5 and f.get("score", 0) < 8:
+    if i.get("score", 0) < bars["idea_bar"] and f.get("score", 0) < 8:
         reasons.append("idea weak and founder not strong enough to pivot-bet")
+    if fit.fit == 0:
+        off_ok = bars["off_thesis_ok_if_founder"]
+        if off_ok is not None and f.get("score", 0) >= off_ok:
+            pass  # high risk appetite: exceptional founder overrides sector fit
+        else:
+            reasons.append("outside thesis sectors (fit 0)")
     if contradicted:
         reasons.append(f"{len(contradicted)} contradicted claim(s) unresolved")
     fund = not reasons
     if fund:
-        reasons.append("all axes above bar, no contradicted claims")
+        reasons.append("all bars cleared through the fund lens, no contradicted claims")
+    check = thesis.get("check_size_usd", 100000)
     return {
-        "decision": "FUND $100K" if fund else "PASS",
-        "rule": "fund iff founder>=6 AND market!=bear AND (idea>=5 OR founder>=8) "
-                "AND zero contradicted claims",
+        "decision": f"FUND ${check:,.0f}" if fund else "PASS",
+        "rule": (f"risk_appetite={bars['appetite']}: fund iff no disqualifier AND "
+                 f"founder>={bars['founder_bar']} AND market!=bear AND "
+                 f"(idea>={bars['idea_bar']} OR founder>=8) AND on-thesis "
+                 f"AND zero contradicted claims"),
         "reasons": reasons,
+        "thesis_fit": {"fit": fit.fit, "matched": fit.matched,
+                       "disqualified": fit.disqualified},
         "deterministic_founder_score": breakdown.total,
     }
 
@@ -237,6 +236,7 @@ def generate_memo(conn, entity_id: int, fresh: bool = False) -> dict:
     events = ledger.events_for(conn, entity_id)
     breakdown = score.founder_score(conn, entity_id)
     thesis = load_thesis()
+    fit = thesis_mod.fit(events, thesis)
 
     axes = {
         "founder": founder_axis(events, breakdown),
@@ -245,7 +245,7 @@ def generate_memo(conn, entity_id: int, fresh: bool = False) -> dict:
     }
     memo = draft_memo(row["canonical_name"], events, axes, thesis)
     validation = validate(memo, events)
-    decision = decide(breakdown, axes, validation)
+    decision = decide(breakdown, axes, validation, thesis, fit)
 
     result = {
         "entity_id": entity_id,

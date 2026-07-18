@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import db, intelligence, ledger, score
+from . import thesis as thesis_mod
 from .entities import Resolver
 
 app = FastAPI(title="The VC Brain")
@@ -46,7 +47,7 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<style>{CSS}</style></head><body>"
         f"<h1><a href='/'>The VC Brain</a></h1>"
         f"<nav><a href='/'>Founders</a> <a href='/apply'>Apply (inbound)</a> "
-        f"<a href='/backtest'>Backtest</a></nav>{body}</body></html>"
+        f"<a href='/thesis'>Thesis</a> <a href='/backtest'>Backtest</a></nav>{body}</body></html>"
     )
 
 
@@ -59,21 +60,59 @@ def healthz():
     return {"status": "ok"}
 
 
+def _fit_cell(f) -> str:
+    if f.disqualified:
+        return (f"<span class='pill down'>disqualified</span> "
+                f"<span class='note'>{esc(', '.join(f.disqualified))}</span>")
+    if f.fit == 0:
+        return "<span class='pill flat'>off-thesis</span>"
+    chips = esc(", ".join(f.matched[:4]))
+    return f"<span class='pill up'>{f.fit:.0%}</span> <span class='note'>{chips}</span>"
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard(n: int = 25, as_of: str | None = None):
+def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
     conn = db.connect()
     st = ledger.stats(conn)
     cutoff = f"{as_of}T23:59:59Z" if as_of else None
-    ranked = score.rank_founders(conn, n=n, as_of=cutoff)
-    rows = "".join(
-        f"<tr><td class='num'>{i}</td>"
-        f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
-        f"<td class='num'>{b.total}</td>"
-        f"<td><span class='pill {'up' if b.trend=='improving' else 'down' if b.trend=='declining' else 'flat'}'>{b.trend}</span></td>"
-        f"<td>{esc(', '.join(b.sources))}</td>"
-        f"<td class='num'>{b.n_events}</td></tr>"
-        for i, (eid, name, b) in enumerate(ranked, 1)
-    )
+    th = thesis_mod.load_thesis()
+
+    if lens != "raw":
+        ranked = thesis_mod.rank_with_lens(conn, th, n=n, as_of=cutoff)
+        rows = "".join(
+            f"<tr><td class='num'>{i}</td>"
+            f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
+            f"<td class='num'><b>{blended}</b></td>"
+            f"<td class='num'>{b.total}</td>"
+            f"<td>{_fit_cell(f)}</td>"
+            f"<td><span class='pill {'up' if b.trend=='improving' else 'down' if b.trend=='declining' else 'flat'}'>{b.trend}</span></td>"
+            f"<td>{esc(', '.join(b.sources))}</td>"
+            f"<td class='num'>{b.n_events}</td></tr>"
+            for i, (eid, name, b, f, blended) in enumerate(ranked, 1)
+        )
+        header = ("<tr><th>#</th><th>founder</th><th>lens score</th><th>raw</th>"
+                  "<th>thesis fit</th><th>trend</th><th>sources</th><th>events</th></tr>")
+        lens_line = (
+            f"<p>🔍 fund lens: <b>{esc(th['fund_name'])}</b> — every ranking is "
+            f"filtered &amp; scored through it (<a href='/thesis'>edit thesis</a> · "
+            f"<a href='/?lens=raw'>view raw scores</a>)</p>"
+        )
+    else:
+        ranked = score.rank_founders(conn, n=n, as_of=cutoff)
+        rows = "".join(
+            f"<tr><td class='num'>{i}</td>"
+            f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
+            f"<td class='num'>{b.total}</td>"
+            f"<td><span class='pill {'up' if b.trend=='improving' else 'down' if b.trend=='declining' else 'flat'}'>{b.trend}</span></td>"
+            f"<td>{esc(', '.join(b.sources))}</td>"
+            f"<td class='num'>{b.n_events}</td></tr>"
+            for i, (eid, name, b) in enumerate(ranked, 1)
+        )
+        header = ("<tr><th>#</th><th>founder</th><th>score</th><th>trend</th>"
+                  "<th>sources</th><th>events</th></tr>")
+        lens_line = ("<p>viewing raw Founder Scores (no fund lens) — "
+                     "<a href='/'>back to thesis view</a></p>")
+
     time_travel = (
         f"<p class='note'>viewing the world as of {esc(as_of)} — "
         f"<a href='/'>back to today</a></p>" if as_of else
@@ -83,11 +122,61 @@ def dashboard(n: int = 25, as_of: str | None = None):
     body = (
         f"<p>{st['events']} signals · {st['entities']} entities · "
         f"{st['merged_away']} identities merged · sources: "
-        f"{esc(', '.join(st['events_by_source']))}</p>{time_travel}"
-        f"<table><tr><th>#</th><th>founder</th><th>score</th><th>trend</th>"
-        f"<th>sources</th><th>events</th></tr>{rows}</table>"
+        f"{esc(', '.join(st['events_by_source']))}</p>{lens_line}{time_travel}"
+        f"<table>{header}{rows}</table>"
     )
     return page("The VC Brain — ranked founders", body)
+
+
+@app.get("/thesis", response_class=HTMLResponse)
+def thesis_form(saved: int = 0):
+    th = thesis_mod.load_thesis()
+    banner = ("<div class='banner'>Thesis saved — the <a style='color:#fff' "
+              "href='/'>dashboard ranking</a> now reflects it.</div>" if saved else "")
+    body = f"""
+    {banner}
+    <h2>Thesis Engine — the fund lens</h2>
+    <p class='note'>Every recommendation is filtered and scored through this
+    configuration: sector keywords drive the fit score on the dashboard, risk
+    appetite sets the decision-rule bars, disqualifiers gate hard, and check
+    size flows into the final decision.</p>
+    <form method='post' action='/thesis'>
+      <label>Fund name</label><input name='fund_name' value="{esc(th['fund_name'])}">
+      <label>Sectors (comma-separated keywords — these are matched against founder evidence)</label>
+      <input name='sectors' value="{esc(', '.join(th['sectors']))}" style='width:640px'>
+      <label>Disqualifiers (comma-separated keywords — hard gate)</label>
+      <input name='disqualifiers' value="{esc(', '.join(th['disqualifiers']))}" style='width:640px'>
+      <label>Risk appetite (high / medium / low — sets decision bars)</label>
+      <input name='risk_appetite' value="{esc(th['risk_appetite'])}">
+      <label>Check size (USD)</label><input name='check_size_usd' value="{th['check_size_usd']}">
+      <label>Stage</label><input name='stage' value="{esc(th['stage'])}">
+      <label>Geography</label><input name='geography' value="{esc(th['geography'])}">
+      <label>Ownership target</label><input name='ownership_target' value="{esc(th['ownership_target'])}">
+      <button>Save thesis</button>
+    </form>
+    <p class='note'>Honesty notes: current sources carry no reliable location
+    signal, so geography is recorded but not filtered; outbound-sourced
+    founders are pre-formal by construction, so stage is trivially satisfied.
+    Neither is silently faked.</p>"""
+    return page("Thesis Engine", body)
+
+
+@app.post("/thesis")
+async def thesis_save(request: Request):
+    form = await request.form()
+    th = thesis_mod.load_thesis()
+    for key in ("fund_name", "risk_appetite", "stage", "geography", "ownership_target"):
+        if form.get(key):
+            th[key] = form[key].strip()
+    for key in ("sectors", "disqualifiers"):
+        if form.get(key) is not None:
+            th[key] = [s.strip() for s in form[key].split(",") if s.strip()]
+    try:
+        th["check_size_usd"] = int(str(form.get("check_size_usd", th["check_size_usd"])).replace(",", "").replace("$", ""))
+    except ValueError:
+        pass
+    thesis_mod.save_thesis(th)
+    return RedirectResponse("/thesis?saved=1", status_code=303)
 
 
 @app.get("/founder/{entity_id}", response_class=HTMLResponse)
@@ -299,11 +388,17 @@ def memo_view(entity_id: int, fresh: int = 0):
 
     d = r["decision"]
     fund = d["decision"].startswith("FUND")
+    tf = d.get("thesis_fit")
+    fit_line = ""
+    if tf:
+        fit_desc = (f"disqualified: {', '.join(tf['disqualified'])}" if tf["disqualified"]
+                    else f"fit {tf['fit']:.0%}" + (f" (matched: {', '.join(tf['matched'][:5])})" if tf["matched"] else " — off-thesis"))
+        fit_line = f"<br><span style='font-size:.8rem'>thesis lens: {esc(fit_desc)}</span>"
     decision_html = (
         f"<div class='banner' style='background:{'#1b5e20' if fund else '#7a1f1f'}'>"
         f"{'✓' if fund else '✗'} {esc(d['decision'])} — {esc('; '.join(d['reasons']))}"
         f"<br><span style='font-size:.8rem'>deterministic rule: {esc(d['rule'])} · "
-        f"LLM writes rationale, never the decision</span></div>"
+        f"LLM writes rationale, never the decision</span>{fit_line}</div>"
     )
     body = (
         f"<h2>Investment memo — {esc(r['founder'])}</h2>"
