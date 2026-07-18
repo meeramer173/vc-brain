@@ -17,6 +17,7 @@ import json
 from . import db, ledger, score
 from .connectors import base
 from .connectors import arxiv as arxiv_conn
+from .connectors import devpost as devpost_conn
 from .connectors import github as github_conn
 from .connectors import hackernews as hn_conn
 from .connectors import ycombinator as yc_conn
@@ -40,6 +41,11 @@ def cmd_ingest(args) -> None:
             category=args.category, max_results=args.max
         )
         result = base.ingest(conn, "arxiv", signals)
+    elif args.source == "devpost":
+        signals = devpost_conn.fetch_winners(
+            max_rows=args.max_rows, offset=args.offset
+        )
+        result = base.ingest(conn, "devpost", signals)
     else:
         raise SystemExit(f"unknown source: {args.source}")
     print(json.dumps(result, indent=2))
@@ -96,12 +102,14 @@ def main() -> None:
     sub.add_parser("init", help="create the database")
 
     pi = sub.add_parser("ingest", help="pull a source into the ledger")
-    pi.add_argument("source", choices=["hn", "yc", "github", "arxiv"])
+    pi.add_argument("source", choices=["hn", "yc", "github", "arxiv", "devpost"])
     pi.add_argument("--days", type=int, default=7)
     pi.add_argument("--since-year", type=int, default=2024)
     pi.add_argument("--min-stars", type=int, default=10)
     pi.add_argument("--category", default="cs.AI")
     pi.add_argument("--max", type=int, default=100)
+    pi.add_argument("--max-rows", type=int, default=10000)
+    pi.add_argument("--offset", type=int, default=0)
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("stats", help="ledger stats")

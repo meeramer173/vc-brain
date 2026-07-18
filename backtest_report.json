@@ -1,0 +1,149 @@
+{
+  "window": "2021-05-01..2021-05-31",
+  "as_of": "2021-05-31T00:00:00Z",
+  "hit_definition": "post-T Show HN with >= 100 points",
+  "cohort_size": 100,
+  "base_rate": 0.05,
+  "top_decile_size": 10,
+  "precision_at_top_decile": 0.1,
+  "lift": 2.0,
+  "mean_score_hits": 40.5,
+  "mean_score_misses": 29.9,
+  "top_decile": [
+    {
+      "name": "susam",
+      "score_at_t": 88.6,
+      "outcome": {
+        "post_t_launches": 46,
+        "best_post_t_points": 176,
+        "hit": true
+      }
+    },
+    {
+      "name": "donutloop",
+      "score_at_t": 82.2,
+      "outcome": {
+        "post_t_launches": 13,
+        "best_post_t_points": 22,
+        "hit": false
+      }
+    },
+    {
+      "name": "tumidpandora",
+      "score_at_t": 81.9,
+      "outcome": {
+        "post_t_launches": 30,
+        "best_post_t_points": 14,
+        "hit": false
+      }
+    },
+    {
+      "name": "developeron29",
+      "score_at_t": 76.5,
+      "outcome": {
+        "post_t_launches": 3,
+        "best_post_t_points": 4,
+        "hit": false
+      }
+    },
+    {
+      "name": "onmyway133",
+      "score_at_t": 70.5,
+      "outcome": {
+        "post_t_launches": 26,
+        "best_post_t_points": 7,
+        "hit": false
+      }
+    },
+    {
+      "name": "creativedg",
+      "score_at_t": 60.1,
+      "outcome": {
+        "post_t_launches": 18,
+        "best_post_t_points": 80,
+        "hit": false
+      }
+    },
+    {
+      "name": "attendos",
+      "score_at_t": 58.1,
+      "outcome": {
+        "post_t_launches": 9,
+        "best_post_t_points": 25,
+        "hit": false
+      }
+    },
+    {
+      "name": "philmcp",
+      "score_at_t": 55.6,
+      "outcome": {
+        "post_t_launches": 1,
+        "best_post_t_points": 6,
+        "hit": false
+      }
+    },
+    {
+      "name": "brundolf",
+      "score_at_t": 50.5,
+      "outcome": {
+        "post_t_launches": 4,
+        "best_post_t_points": 5,
+        "hit": false
+      }
+    },
+    {
+      "name": "txthinking",
+      "score_at_t": 50.4,
+      "outcome": {
+        "post_t_launches": 6,
+        "best_post_t_points": 17,
+        "hit": false
+      }
+    }
+  ],
+  "false_positives": [
+    {
+      "name": "donutloop",
+      "score_at_t": 82.2
+    },
+    {
+      "name": "tumidpandora",
+      "score_at_t": 81.9
+    },
+    {
+      "name": "developeron29",
+      "score_at_t": 76.5
+    },
+    {
+      "name": "onmyway133",
+      "score_at_t": 70.5
+    },
+    {
+      "name": "creativedg",
+      "score_at_t": 60.1
+    },
+    {
+      "name": "attendos",
+      "score_at_t": 58.1
+    },
+    {
+      "name": "philmcp",
+      "score_at_t": 55.6
+    },
+    {
+      "name": "brundolf",
+      "score_at_t": 50.5
+    },
+    {
+      "name": "txthinking",
+      "score_at_t": 50.4
+    }
+  ],
+  "missed_hits_below_median": [
+    {
+      "name": "hanseul",
+      "score_at_t": 20.2,
+      "best_post_t_points": 197
+    }
+  ]
+}
