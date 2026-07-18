@@ -54,6 +54,11 @@ def esc(v) -> str:
     return html.escape(str(v if v is not None else ""))
 
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard(n: int = 25, as_of: str | None = None):
     conn = db.connect()
