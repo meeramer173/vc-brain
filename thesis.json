@@ -1,0 +1,17 @@
+{
+  "fund_name": "Maschmeyer Group \u2014 demo thesis",
+  "sectors": [
+    "AI infrastructure",
+    "developer tools",
+    "applied AI"
+  ],
+  "stage": "pre-seed / first check",
+  "geography": "global, remote-friendly",
+  "check_size_usd": 100000,
+  "ownership_target": "SAFE, uncapped-friendly at this size",
+  "risk_appetite": "high \u2014 betting on people before track record",
+  "disqualifiers": [
+    "crypto/token projects",
+    "pure consultancy"
+  ]
+}

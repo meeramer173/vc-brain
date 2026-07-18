@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from . import db, ledger, score
+from . import db, intelligence, ledger, score
 from .entities import Resolver
 
 app = FastAPI(title="The VC Brain")
@@ -135,6 +135,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
     body = (
         f"{banner}<h2>{esc(row['canonical_name'])} "
         f"<span class='pill {'up' if b.trend=='improving' else 'down' if b.trend=='declining' else 'flat'}'>{b.trend}</span></h2>"
+        f"<p><a href='/memo/{entity_id}'>→ Investment memo &amp; $100K decision</a></p>"
         f"<p class='note'>handles: {esc(row['handles'])}</p>"
         f"<h3>Founder Score: {b.total} <span class='note'>as of {esc(b.as_of[:10])}</span></h3>"
         f"<table><tr><th>component</th><th>points</th><th>evidence (click)</th></tr>{comps}</table>{notes}"
@@ -228,6 +229,92 @@ def backtest_view():
         f"<table><tr><th>founder</th><th>score @ T</th><th>later hit (pts)</th></tr>{misses}</table>"
     )
     return page("Backtest", body)
+
+
+VERDICT_CLASS = {"supported": "up", "weak": "flat", "contradicted": "down", "gap": "flat"}
+
+
+def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int) -> tuple[str, int]:
+    out = []
+    idx = start_idx
+    for c in claims:
+        cid = f"{section}:{c.get('id', idx)}"
+        v = verdicts.get(cid, {})
+        verdict = v.get("verdict", "unchecked")
+        pill = VERDICT_CLASS.get(verdict, "flat")
+        ev = " ".join(f"<a href='#ev{i}'>#{i}</a>" for i in c.get("evidence_ids", []))
+        gap = " <b>[GAP — flagged, not guessed]</b>" if c.get("gap") else ""
+        out.append(
+            f"<li>{esc(c.get('text'))}{gap} "
+            f"<span class='pill {pill}' title='{esc(v.get('note', ''))}'>"
+            f"{verdict} · trust {v.get('trust', '—')}</span> "
+            f"<span class='note'>{ev}</span></li>"
+        )
+        idx += 1
+    return "".join(out), idx
+
+
+@app.get("/memo/{entity_id}", response_class=HTMLResponse)
+def memo_view(entity_id: int, fresh: int = 0):
+    conn = db.connect()
+    row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+    if row is None:
+        return page("Not found", "<p>No such entity.</p>")
+    r = intelligence.generate_memo(conn, entity_id, fresh=bool(fresh))
+
+    axes_html = "".join(
+        f"<td style='vertical-align:top'><b>{ax.upper()}</b><br>"
+        f"<span style='font-size:1.6rem' class='num'>{v.get('score', '—')}/10</span><br>"
+        f"{esc(v.get('rating', ''))}<br><span class='note'>confidence {v.get('confidence', '—')}"
+        f"{' · insufficient evidence' if v.get('insufficient_evidence') else ''}</span>"
+        f"<p class='note'>{esc(v.get('rationale', ''))}</p></td>"
+        for ax, v in r["axes"].items()
+    )
+    verdicts = {v["claim_id"]: v for v in r["validation"].get("verdicts", [])}
+
+    sections_html, idx = "", 0
+    memo = r["memo"]
+    for sec_name, title in [
+        ("company_snapshot", "Company snapshot"),
+        ("investment_hypotheses", "Investment hypotheses"),
+        ("swot", "SWOT"),
+        ("problem_product", "Problem & product"),
+        ("traction_kpis", "Traction & KPIs"),
+    ]:
+        val = memo.get(sec_name)
+        if isinstance(val, dict):  # SWOT quadrants
+            inner = ""
+            for quad, claims in val.items():
+                lis, idx = _render_claims(sec_name, claims or [], verdicts, idx)
+                inner += f"<p><b>{esc(quad.title())}</b></p><ul>{lis}</ul>"
+            sections_html += f"<h3>{title}</h3>{inner}"
+        elif isinstance(val, list):
+            lis, idx = _render_claims(sec_name, val, verdicts, idx)
+            sections_html += f"<h3>{title}</h3><ul>{lis}</ul>"
+
+    d = r["decision"]
+    fund = d["decision"].startswith("FUND")
+    decision_html = (
+        f"<div class='banner' style='background:{'#1b5e20' if fund else '#7a1f1f'}'>"
+        f"{'✓' if fund else '✗'} {esc(d['decision'])} — {esc('; '.join(d['reasons']))}"
+        f"<br><span style='font-size:.8rem'>deterministic rule: {esc(d['rule'])} · "
+        f"LLM writes rationale, never the decision</span></div>"
+    )
+    body = (
+        f"<h2>Investment memo — {esc(r['founder'])}</h2>"
+        f"<p class='note'>model {esc(r['model'])} · generated {esc(r['generated_at'])} · "
+        f"thesis: {esc(r['thesis']['fund_name'])} · "
+        f"<a href='/memo/{entity_id}?fresh=1'>regenerate</a> · "
+        f"<a href='/founder/{entity_id}'>evidence timeline</a></p>"
+        f"{decision_html}"
+        f"<h3>Three axes — scored independently, never averaged</h3>"
+        f"<table><tr>{axes_html}</tr></table>"
+        f"{sections_html}"
+        f"<p class='note'>Every claim carries a per-claim Trust Score from an "
+        f"adversarial validator that tried to refute it against the ledger. "
+        f"Evidence links jump to the founder timeline.</p>"
+    )
+    return page(f"Memo — {r['founder']}", body)
 
 
 @app.get("/api/founders")
