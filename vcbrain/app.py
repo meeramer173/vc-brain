@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from . import contacts as contacts_mod
 from . import db, intelligence, ledger, score
 from . import search as search_mod
 from . import thesis as thesis_mod
@@ -350,6 +351,36 @@ def _handles_html(handles_json: str) -> str:
         else:
             parts.append(f"<span class='chip'>{esc(_HANDLE_LABELS.get(k, k))}: {esc(v)}</span>")
     return " ".join(parts)
+
+
+def _contact_block(contact: dict | None) -> str:
+    """Render self-declared contact info as clickable chips, each labeled with
+    where it was declared. Empty string when nothing is on record — we never
+    show a guessed contact."""
+    if not contact:
+        return ""
+    src = contact.get("sources", {}) or {}
+    chips = []
+    if contact.get("email"):
+        chips.append(
+            f"<a class='chip' href='mailto:{esc(contact['email'])}'>✉ {esc(contact['email'])}</a>"
+            f"<span class='note' style='margin-left:.25rem'>({esc(src.get('email', 'declared'))})</span>"
+        )
+    if contact.get("linkedin"):
+        head = f" · {esc(contact['headline'])}" if contact.get("headline") else ""
+        chips.append(
+            f"<a class='chip' target='_blank' rel='noopener' href='{esc(contact['linkedin'])}'>in LinkedIn</a>"
+            f"<span class='note' style='margin-left:.25rem'>({esc(src.get('linkedin', 'declared'))}){head}</span>"
+        )
+    if not chips:
+        return ""
+    return (
+        "<div style='margin:.1rem 0 .8rem'>"
+        "<span class='eyebrow' style='margin:0' title='Only info the founder "
+        "published themselves on GitHub / HN — never name-matched or scraped'>"
+        "Verified contact · self-declared</span><br>"
+        + " ".join(chips) + "</div>"
+    )
 
 
 def _trend_pill(trend: str) -> str:
@@ -853,6 +884,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
     cutoff = f"{as_of}T23:59:59Z" if as_of else None
     b = score.founder_score(conn, entity_id, as_of=cutoff)
     events = ledger.events_for(conn, entity_id, as_of=cutoff)
+    contact = contacts_mod.latest_contact(conn, entity_id)
 
     banner = ""
     apps = [e for e in events if e["event_type"] == "application"]
@@ -892,7 +924,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<td>{esc(e['payload'].get('title') or e['payload'].get('repo') or e['payload'].get('project') or e['payload'].get('one_liner') or '')}"
         + (f" <a href='{esc(e['payload']['url'])}'>↗</a>" if e['payload'].get('url') else "")
         + f"</td><td class='num'>{e['payload'].get('points') or e['payload'].get('stars') or ''}</td></tr>"
-        for e in reversed(events)
+        for e in reversed(events) if e["event_type"] != "contact"
     )
     # The public-footprint enrichment lives in exactly one place: the cold-start
     # panel when thin (primary action), the profile card otherwise (secondary).
@@ -925,6 +957,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<h2>{esc(row['canonical_name'])} {_trend_pill(b.trend)} "
         f"{_confidence_pill(b.confidence)} {cold_flag}</h2>"
         f"<p class='note' style='margin:.2rem 0 .8rem'>{_handles_html(row['handles'])}</p>"
+        f"{_contact_block(contact)}"
         f"{footprint_here}"
         f"<a class='btn' href='/memo/{entity_id}' style='margin-top:0'>Investment memo &amp; "
         f"$100K decision →</a> {activate_btn}</div></div>"
@@ -1123,16 +1156,51 @@ def activate_view(entity_id: int, fresh: int = 0):
             )
         _OUTREACH_CACHE[entity_id] = o
 
+    from urllib.parse import quote
+
     email = o.get("email", {}) or {}
     signal_rows = _outreach_signal_rows(events, o.get("cited_event_ids", []))
+
+    # Real destinations, from the founder's SELF-DECLARED contact info only —
+    # the draft is no longer a message into the void. Absent → say so honestly.
+    contact = contacts_mod.latest_contact(conn, entity_id) or {}
+    csrc = contact.get("sources", {}) or {}
+    to_addr, li_url = contact.get("email"), contact.get("linkedin")
+    if to_addr:
+        mailto = ("mailto:" + to_addr + "?subject=" + quote(email.get("subject", ""))
+                  + "&body=" + quote(email.get("body", "")))
+        email_action = (
+            f"<a class='btn' target='_blank' href='{esc(mailto)}' style='margin-top:.4rem'>"
+            f"Send to {esc(to_addr)} →</a>"
+            f"<span class='note' style='margin-left:.4rem'>self-declared · {esc(csrc.get('email', 'profile'))}</span>"
+        )
+    else:
+        email_action = (
+            "<p class='note' style='margin:.3rem 0 0'>No self-declared email on file — "
+            "copy the draft, or try the web lookup on the founder page.</p>"
+        )
+    if li_url:
+        li_action = (
+            f"<a class='btn ghost' target='_blank' rel='noopener' href='{esc(li_url)}' style='margin-top:.4rem'>"
+            f"Open LinkedIn profile →</a>"
+            f"<span class='note' style='margin-left:.4rem'>self-declared · {esc(csrc.get('linkedin', 'profile'))}</span>"
+        )
+    else:
+        li_action = (
+            "<p class='note' style='margin:.3rem 0 0'>No declared LinkedIn URL — "
+            "the founder page can attempt a name-guarded web lookup.</p>"
+        )
+
     channels = (
         f"<div class='card reveal' style='margin:.8rem 0'>"
         f"<p class='eyebrow' style='margin:0'>Email</p>"
         f"<p style='margin:.35rem 0'><b>Subject:</b> {esc(email.get('subject', ''))}</p>"
-        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(email.get('body', ''))}</p></div>"
+        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(email.get('body', ''))}</p>"
+        f"{email_action}</div>"
         f"<div class='card reveal' style='margin:.8rem 0'>"
         f"<p class='eyebrow' style='margin:0'>LinkedIn</p>"
-        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(o.get('linkedin', ''))}</p></div>"
+        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(o.get('linkedin', ''))}</p>"
+        f"{li_action}</div>"
         f"<div class='card reveal' style='margin:.8rem 0'>"
         f"<p class='eyebrow' style='margin:0'>X / Twitter DM</p>"
         f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(o.get('x', ''))}</p></div>"

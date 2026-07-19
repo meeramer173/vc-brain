@@ -250,3 +250,47 @@ def find_profiles(name: str, min_relevance: float = 0.3) -> dict:
         "linkedin": pick(li_profile, "profile", li_mention, "mention"),
         "x": pick(x_profile, "profile", x_post, "post"),
     }
+
+
+def linkedin_headline(name: str, url: str, min_relevance: float = 0.3) -> str | None:
+    """Option A: the PUBLIC search-index snippet for a founder's *declared*
+    LinkedIn URL — headline / role only, no scraping and no login.
+
+    Anchored on the URL we already got from GitHub (not a name guess): we only
+    return a snippet whose result URL matches that declared profile, so it's
+    the right person or nothing. Returns None on no key / no match / failure.
+    """
+    if not url:
+        return None
+    key = os.environ.get("TAVILY_API_KEY")
+    if not key:
+        return None
+    target = url.lower().split("?")[0].rstrip("/")
+    body = {
+        "query": f'"{name}"',
+        "search_depth": "advanced",
+        "topic": "general",
+        "max_results": 10,
+        "include_raw_content": False,
+        "include_answer": False,
+        "include_domains": ["linkedin.com"],
+    }
+    try:
+        resp = httpx.post(
+            SEARCH_URL,
+            headers={"Authorization": f"Bearer {key}"},
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+    except (httpx.HTTPError, ValueError):
+        return None
+    for r in results:
+        u = (r.get("url") or "").lower().split("?")[0].rstrip("/")
+        if not u:
+            continue
+        if u == target or u in target or target in u:
+            snippet = (r.get("content") or r.get("title") or "").strip()
+            return snippet[:200] or None
+    return None
