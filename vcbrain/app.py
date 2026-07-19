@@ -35,6 +35,8 @@ a{color:#2952cc} .pill{border-radius:9px;padding:.1rem .5rem;font-size:.8rem}
 .banner{background:#153e75;color:#fff;padding:1rem;border-radius:8px;margin:1rem 0;font-size:1.05rem}
 .note{color:#777;font-size:.85rem} .num{font-variant-numeric:tabular-nums}
 .timer{background:#fff3bf;padding:.6rem 1rem;border-radius:8px;display:inline-block;margin:.5rem 0}
+tr[id^=ev]{scroll-margin-top:1rem} tr:target td{background:#fff3bf;transition:background .3s}
+.chip{background:#eef;border-radius:9px;padding:.1rem .5rem;font-size:.82rem;margin-right:.3rem}
 form label{display:block;margin:.6rem 0 .15rem;font-size:.9rem}
 input{padding:.4rem;width:320px;border:1px solid #ccc;border-radius:5px}
 button{margin-top:1rem;padding:.5rem 1.4rem;background:#153e75;color:#fff;border:0;border-radius:6px;cursor:pointer}
@@ -55,6 +57,26 @@ def page(title: str, body: str) -> HTMLResponse:
 
 def esc(v) -> str:
     return html.escape(str(v if v is not None else ""))
+
+
+_HANDLE_LABELS = {"github": "GitHub", "hn": "Hacker News", "arxiv_name": "arXiv",
+                  "devpost_name": "Devpost", "yc_slug": "YC", "applicant_name": "applied"}
+
+
+def _handles_html(handles_json: str) -> str:
+    """Render the stored handles JSON as readable chips + links, not raw JSON."""
+    try:
+        h = json.loads(handles_json)
+    except (ValueError, TypeError):
+        return ""
+    parts = []
+    for k, v in h.items():
+        if k == "urls":
+            for u in v:
+                parts.append(f"<a href='{esc(u)}'>{esc(u.split('//')[-1])}</a>")
+        else:
+            parts.append(f"<span class='chip'>{esc(_HANDLE_LABELS.get(k, k))}: {esc(v)}</span>")
+    return " ".join(parts)
 
 
 @app.get("/healthz")
@@ -321,7 +343,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
 
     comps = "".join(
         f"<tr><td>{comp}</td><td class='num'>{pts} / {score.WEIGHTS[comp]}</td>"
-        f"<td>{' '.join(f'<a href=#ev{i}>#{i}</a>' for i in b.evidence[comp][:10])}</td></tr>"
+        f"<td>{' '.join(f'<a href=\"#ev{i}\">#{i}</a>' for i in b.evidence[comp][:10])}</td></tr>"
         for comp, pts in b.components.items()
     )
     notes = "".join(f"<p class='note'>! {esc(n)}</p>" for n in b.notes)
@@ -337,7 +359,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"{banner}<h2>{esc(row['canonical_name'])} "
         f"<span class='pill {'up' if b.trend=='improving' else 'down' if b.trend=='declining' else 'flat'}'>{b.trend}</span></h2>"
         f"<p><a href='/memo/{entity_id}'>→ Investment memo &amp; $100K decision</a></p>"
-        f"<p class='note'>handles: {esc(row['handles'])}</p>"
+        f"<p class='note'>{_handles_html(row['handles'])}</p>"
         f"<h3>Founder Score: {b.total} <span class='note'>as of {esc(b.as_of[:10])}</span></h3>"
         f"<table><tr><th>component</th><th>points</th><th>evidence (click)</th></tr>{comps}</table>{notes}"
         f"<h3>Timeline ({len(events)} events, newest first)</h3>"
@@ -435,7 +457,8 @@ def backtest_view():
 VERDICT_CLASS = {"supported": "up", "weak": "flat", "contradicted": "down", "gap": "flat"}
 
 
-def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int) -> tuple[str, int]:
+def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int,
+                   entity_id: int) -> tuple[str, int]:
     out = []
     idx = start_idx
     for c in claims:
@@ -443,7 +466,9 @@ def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int) -
         v = verdicts.get(cid, {})
         verdict = v.get("verdict", "unchecked")
         pill = VERDICT_CLASS.get(verdict, "flat")
-        ev = " ".join(f"<a href='#ev{i}'>#{i}</a>" for i in c.get("evidence_ids", []))
+        # Evidence anchors live on the founder timeline, not this page — link there.
+        ev = " ".join(f"<a href='/founder/{entity_id}#ev{i}'>#{i}</a>"
+                      for i in c.get("evidence_ids", []))
         gap = " <b>[GAP — flagged, not guessed]</b>" if c.get("gap") else ""
         out.append(
             f"<li>{esc(c.get('text'))}{gap} "
@@ -486,11 +511,11 @@ def memo_view(entity_id: int, fresh: int = 0):
         if isinstance(val, dict):  # SWOT quadrants
             inner = ""
             for quad, claims in val.items():
-                lis, idx = _render_claims(sec_name, claims or [], verdicts, idx)
+                lis, idx = _render_claims(sec_name, claims or [], verdicts, idx, entity_id)
                 inner += f"<p><b>{esc(quad.title())}</b></p><ul>{lis}</ul>"
             sections_html += f"<h3>{title}</h3>{inner}"
         elif isinstance(val, list):
-            lis, idx = _render_claims(sec_name, val, verdicts, idx)
+            lis, idx = _render_claims(sec_name, val, verdicts, idx, entity_id)
             sections_html += f"<h3>{title}</h3><ul>{lis}</ul>"
 
     d = r["decision"]
