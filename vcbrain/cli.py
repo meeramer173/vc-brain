@@ -6,6 +6,8 @@ Examples:
     python -m vcbrain.cli ingest yc --since-year 2024
     python -m vcbrain.cli ingest github --days 14 --min-stars 10
     python -m vcbrain.cli ingest arxiv --category cs.AI --max 100
+    python -m vcbrain.cli ingest tavily --limit 30            # enrich top founders
+    python -m vcbrain.cli ingest tavily --limit 30 --domains linkedin.com,x.com
     python -m vcbrain.cli stats
     python -m vcbrain.cli top --n 15 [--as-of 2026-06-01]
     python -m vcbrain.cli show --entity 42
@@ -20,6 +22,7 @@ from .connectors import arxiv as arxiv_conn
 from .connectors import devpost as devpost_conn
 from .connectors import github as github_conn
 from .connectors import hackernews as hn_conn
+from .connectors import tavily as tavily_conn
 from .connectors import ycombinator as yc_conn
 
 
@@ -46,6 +49,38 @@ def cmd_ingest(args) -> None:
             max_rows=args.max_rows, offset=args.offset
         )
         result = base.ingest(conn, "devpost", signals)
+    elif args.source == "tavily":
+        # Enrichment source: pull existing founders (most-active first) and
+        # search the web for independent coverage of each. Handles come
+        # straight from the ledger so ingest() re-attaches to the same
+        # entity instead of minting a new one.
+        rows = conn.execute(
+            """
+            SELECT e.id, e.canonical_name, e.handles, COUNT(ev.id) AS c
+            FROM entities e LEFT JOIN events ev ON ev.entity_id = e.id
+            WHERE e.kind = 'person' AND e.merged_into IS NULL
+            GROUP BY e.id
+            ORDER BY c DESC, e.id ASC
+            LIMIT ?
+            """,
+            (args.limit,),
+        ).fetchall()
+        targets = [
+            {"name": r["canonical_name"], "handles": json.loads(r["handles"])}
+            for r in rows
+        ]
+        domains = (
+            [d.strip() for d in args.domains.split(",") if d.strip()]
+            if args.domains
+            else None
+        )
+        signals = tavily_conn.fetch_web_signals(
+            targets,
+            per_entity=args.per_entity,
+            min_relevance=args.min_relevance,
+            include_domains=domains,
+        )
+        result = base.ingest(conn, "tavily", signals)
     else:
         raise SystemExit(f"unknown source: {args.source}")
     print(json.dumps(result, indent=2))
@@ -102,7 +137,9 @@ def main() -> None:
     sub.add_parser("init", help="create the database")
 
     pi = sub.add_parser("ingest", help="pull a source into the ledger")
-    pi.add_argument("source", choices=["hn", "yc", "github", "arxiv", "devpost"])
+    pi.add_argument(
+        "source", choices=["hn", "yc", "github", "arxiv", "devpost", "tavily"]
+    )
     pi.add_argument("--days", type=int, default=7)
     pi.add_argument("--since-year", type=int, default=2024)
     pi.add_argument("--min-stars", type=int, default=10)
@@ -110,6 +147,12 @@ def main() -> None:
     pi.add_argument("--max", type=int, default=100)
     pi.add_argument("--max-rows", type=int, default=10000)
     pi.add_argument("--offset", type=int, default=0)
+    # tavily enrichment: --limit founders searched (~2 credits each),
+    # --per-entity results kept per founder, --domains to focus (e.g. social)
+    pi.add_argument("--limit", type=int, default=50)
+    pi.add_argument("--per-entity", type=int, default=5)
+    pi.add_argument("--min-relevance", type=float, default=0.2)
+    pi.add_argument("--domains", default=None)
     pi.set_defaults(func=cmd_ingest)
 
     ps = sub.add_parser("stats", help="ledger stats")
