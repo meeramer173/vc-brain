@@ -421,9 +421,11 @@ def _io_tag(is_inbound: bool) -> str:
 COMP_HELP = {
     "shipping_cadence": "How much they shipped in the last 180 days (6+ ships = full marks).",
     "momentum": "Recent shipping, weighted heavily — a 60-day half-life rewards being active now.",
+    "consistency": "How many distinct months they were active in the last year.",
     "breadth": "How many different sources independently vouch for them.",
     "external_validation": "Accumulated stars + points across their work (log-scaled).",
-    "consistency": "How many distinct months they were active in the last year.",
+    "experience": "Track record from real signals: prior ventures, accelerator batches, and how long they've been building.",
+    "technical_depth": "Technical output: papers, repos, patents, OSS maintainership (research weighted higher).",
 }
 
 
@@ -966,9 +968,10 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<p><a class='btn ghost' href='/?view=founders' style='margin-top:0'>← All founders</a></p>"
         f"{banner}{profile}{cold_panel}"
         f"<h3 class='reveal'>How the Founder Score ({b.total}) was calculated{_info('Deterministic: same events in, same score out. No AI.')}</h3>"
-        f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 tally of "
-        f"how much this person ships — five weighted components that add up to 100. Every point "
-        f"cites the exact ledger events behind it (hover each component's ⓘ for what it measures).</p>"
+        f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 measure of "
+        f"execution, experience, and technical depth — seven weighted components that add up to 100. "
+        f"Every point cites the exact ledger events behind it (hover each component's ⓘ for what it "
+        f"measures).</p>"
         f"<div class='tablewrap reveal'><table>"
         f"<tr><th>component</th><th>points</th><th></th><th>evidence (click)</th></tr>{comps}"
         f"</table></div>{notes}"

@@ -9,9 +9,16 @@ Design rules:
 Components (weights sum to 100):
   shipping_cadence     how much they ship in the trailing 180 days
   momentum             recency-weighted shipping (half-life 60 days)
+  consistency          active months out of the last 12
   breadth              distinct independent sources vouching for them
   external_validation  accumulated points/stars (log-scaled)
-  consistency          active months out of the last 12
+  experience           track record: prior ventures, credentials, tenure
+  technical_depth      technical output: papers, repos, patents, OSS
+
+Moving beyond pure execution velocity toward the brief's "skills, experience,
+and track record". Experience and technical_depth are DERIVED from real ledger
+events (arxiv papers, github repos, YC batches, curated career events) — never
+guessed. A founder with no such signal scores 0 there ("unknown"), honestly.
 """
 
 import math
@@ -22,14 +29,21 @@ from datetime import datetime, timedelta, timezone
 from . import ledger
 
 WEIGHTS = {
-    "shipping_cadence": 30,
-    "momentum": 30,
-    "breadth": 15,
-    "external_validation": 15,
+    "shipping_cadence": 20,
+    "momentum": 20,
     "consistency": 10,
+    "breadth": 10,
+    "external_validation": 10,
+    "experience": 15,
+    "technical_depth": 15,
 }
 
 SHIP_TYPES = {"launch", "repo_launch", "paper", "hackathon_win"}
+# Technical output (real: arxiv papers + github repos; curated: patents/OSS).
+TECH_TYPES = {"paper", "repo_launch", "patent", "oss_maintainer"}
+TECH_WEIGHT = {"paper": 1.5, "patent": 2.0, "oss_maintainer": 1.5, "repo_launch": 1.0}
+# Track record (real: YC/accelerator batches; curated: prior startups + roles).
+EXPERIENCE_TYPES = {"accelerator_batch", "startup_founded", "startup_exit", "role"}
 TREND_WINDOW_DAYS = 30
 TREND_EPSILON = 2.0  # score points; smaller moves count as "stable"
 
@@ -88,22 +102,50 @@ def _score_at(events: list[dict], as_of: datetime) -> tuple[dict, dict]:
     }
     consistency_norm = min(1.0, len(active_months) / 6)
 
+    # Technical depth: weighted count of technical artifacts (research > repos).
+    tech = [e for e in events if e["event_type"] in TECH_TYPES]
+    tech_weight = sum(TECH_WEIGHT.get(e["event_type"], 1.0) for e in tech)
+    tech_norm = min(1.0, tech_weight / 4)
+
+    # Experience: prior ventures / credentials, how many distinct things they've
+    # built, and how long they've been at it — all from real observed events.
+    exp_events = [e for e in events if e["event_type"] in EXPERIENCE_TYPES]
+    cred_norm = min(1.0, len(exp_events) / 2)
+    real = [e for e in events if e["source"] != "system"]
+    stamps = [ledger.parse_ts(e["event_ts"]) for e in real]
+    span_days = (max(stamps) - min(stamps)).days if len(stamps) >= 2 else 0
+    tenure_norm = min(1.0, span_days / 730)  # 2 years active -> full
+    ventures = {
+        (e["payload"].get("repo") or e["payload"].get("project")
+         or e["payload"].get("company") or "").strip().lower()
+        for e in events
+    }
+    ventures.discard("")
+    venture_norm = min(1.0, len(ventures) / 3)
+    experience_norm = 0.4 * cred_norm + 0.3 * venture_norm + 0.3 * tenure_norm
+
+    exp_evidence = [e["id"] for e in exp_events] or [e["id"] for e in real][:8]
+
     norms = {
         "shipping_cadence": cadence_norm,
         "momentum": momentum_norm,
+        "consistency": consistency_norm,
         "breadth": breadth_norm,
         "external_validation": validation_norm,
-        "consistency": consistency_norm,
+        "experience": experience_norm,
+        "technical_depth": tech_norm,
     }
     evidence = {
         "shipping_cadence": [e["id"] for e in recent],
         "momentum": [e["id"] for e in ship],
-        "breadth": [e["id"] for e in events if e["source"] != "system"][:20],
+        "consistency": [e["id"] for e in ship],
+        "breadth": [e["id"] for e in real][:20],
         "external_validation": [
             e["id"] for e in events
             if (e["payload"].get("points") or e["payload"].get("stars"))
         ],
-        "consistency": [e["id"] for e in ship],
+        "experience": exp_evidence,
+        "technical_depth": [e["id"] for e in tech],
     }
     return norms, evidence
 
