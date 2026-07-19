@@ -43,18 +43,6 @@ vcbrain/
   connectors/     hn, yc, github, arxiv (devpost + producthunt TODO)
 ```
 
-## Team split (suggested)
-
-- **A — data spine & sourcing** (this scaffold): more connectors (Devpost,
-  Product Hunt), momentum scanner tuning, entity-resolution edge cases.
-- **B — intelligence**: thesis engine, 3-axis agents (disjoint evidence slices,
-  never averaged), adversarial validator, memo with per-claim Trust Score.
-  Needs `ANTHROPIC_API_KEY`.
-- **C — backtest**: freeze 2019–21 Show HN/Devpost cohorts at time T with
-  `--as-of`, evaluate vs known 2026 outcomes, report lift + failure cases.
-- **D — experience**: FastAPI + dashboard; inbound application endpoint
-  ("we already knew you" merge), memo click-through to evidence, decision timer.
-
 ## Rubric anchors (from the challenge brief)
 
 - Data Architecture & Intelligence 30% — sourcing depth + explicit cold-start method
