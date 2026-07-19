@@ -10,12 +10,15 @@ same entity resolution the outbound scanner uses.
 Run:  uv run uvicorn vcbrain.app:app --reload
 """
 
+import base64
 import html
 import json
+import os
+import secrets
 from datetime import timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import contacts as contacts_mod
@@ -27,6 +30,35 @@ from . import thesis as thesis_mod
 from .entities import Resolver, resolve
 
 app = FastAPI(title="The VC Brain")
+
+
+# --- Demo access gate -------------------------------------------------------
+# HTTP Basic Auth over the whole app EXCEPT /healthz (Railway's health check).
+# Credentials come ONLY from env (DEMO_USER / DEMO_PASSWORD) — never the repo,
+# which is public. When DEMO_PASSWORD is unset the gate is OFF, so local dev
+# stays frictionless; it activates only where the env var is set (deployment).
+@app.middleware("http")
+async def _demo_auth(request: Request, call_next):
+    password = os.environ.get("DEMO_PASSWORD", "")
+    if password and request.url.path != "/healthz":
+        user = os.environ.get("DEMO_USER", "judge")
+        header = request.headers.get("authorization", "")
+        ok = False
+        if header.startswith("Basic "):
+            try:
+                supplied_u, _, supplied_p = base64.b64decode(
+                    header[6:]).decode("utf-8", "replace").partition(":")
+                ok = (secrets.compare_digest(supplied_u, user)
+                      and secrets.compare_digest(supplied_p, password))
+            except Exception:
+                ok = False
+        if not ok:
+            return Response(
+                "Authentication required — this is a private demo.",
+                status_code=401,
+                headers={"WWW-Authenticate": 'Basic realm="VC Brain demo"'},
+            )
+    return await call_next(request)
 
 CSS = """
 *{box-sizing:border-box}
