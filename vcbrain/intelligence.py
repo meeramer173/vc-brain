@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
-from . import db, ledger, score
+from . import db, ledger, score, trust
 from . import thesis as thesis_mod
 from .thesis import load_thesis
 
@@ -195,23 +195,30 @@ def _iter_claims(memo: dict):
 
 
 def validate(memo: dict, events: list[dict]) -> dict:
+    """Adversarial validation. The LLM gives a *verdict* and *claim_type* only;
+    the Trust Score itself is computed deterministically in trust.py from the
+    cited evidence — the model never emits the number."""
     claims = [
         {"claim_id": f"{sec}:{c.get('id', i)}", "text": c["text"],
          "evidence_ids": c.get("evidence_ids", []), "gap": c.get("gap", False)}
         for i, (sec, c) in enumerate(_iter_claims(memo))
     ]
-    return _llm(
+    judged = _llm(
         "You are an adversarial validator. For each claim, try to REFUTE it "
         "using the evidence list: does the cited evidence actually say what "
         "the claim says? Verdicts: 'supported' (evidence clearly backs it), "
         "'weak' (partially/indirectly backed), 'contradicted' (evidence says "
         "otherwise or ids don't support it), 'gap' (claim correctly flags "
-        "missing data). trust is 0.0-1.0. Be skeptical: when uncertain, "
-        "choose 'weak' and lower trust. Respond JSON: {verdicts: "
-        "[{claim_id, verdict, trust, note (<=25 words)}]}",
+        "missing data). Also label claim_type: 'fact' (a checkable, concrete "
+        "statement) or 'inference' (an interpretation/opinion drawn from data). "
+        "Be skeptical: when uncertain, choose 'weak'. Do NOT output a trust "
+        "score — that is computed downstream. Respond JSON: {verdicts: "
+        "[{claim_id, verdict, claim_type, note (<=25 words)}]}",
         json.dumps({"claims": claims, "evidence": evidence_digest(events)}),
         max_tokens=4000,
     )
+    # Deterministic trust: same claim + same evidence => same number.
+    return trust.score_all(claims, judged.get("verdicts", []), events)
 
 
 def decide(breakdown, axes: dict, validation: dict, thesis: dict, fit) -> dict:

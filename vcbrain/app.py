@@ -203,6 +203,23 @@ button:hover,.btn:hover{background-position:90% 0;transform:translateY(-1px);
   *,*::before,*::after{animation:none!important;transition:none!important}
   .reveal{opacity:1;transform:none}}
 
+/* ─── trust score (deterministic) ─────────────────── */
+.trust{font-weight:650;border-radius:99px;padding:.14rem .6rem;font-size:.76rem;
+  font-variant-numeric:tabular-nums;white-space:nowrap;border:1px solid transparent;display:inline-block}
+.t-hi{background:rgba(61,220,151,.12);color:var(--green);border-color:rgba(61,220,151,.3)}
+.t-mid{background:rgba(255,201,77,.12);color:var(--amber);border-color:rgba(255,201,77,.3)}
+.t-lo{background:rgba(255,122,138,.12);color:var(--red);border-color:rgba(255,122,138,.3)}
+.t-gap{background:rgba(142,163,196,.10);color:var(--muted);border-color:rgba(142,163,196,.22)}
+li.claim{margin:.5rem 0;line-height:1.5}
+.ctype{font-size:.68rem;color:var(--faint);border:1px solid var(--border2);border-radius:99px;padding:0 .4rem}
+details.bd{margin:.25rem 0 .3rem 1.3rem;font-size:.8rem;color:var(--muted)}
+details.bd summary{cursor:pointer;color:var(--cyan)}
+details.bd code{background:rgba(6,9,19,.55);border:1px solid var(--border);
+  padding:.05rem .35rem;border-radius:5px;color:var(--text)}
+.trustbar{display:flex;gap:1.6rem;flex-wrap:wrap;align-items:center}
+.trustbar .cell{font-size:.76rem;color:var(--faint);line-height:1.3}
+.trustbar .cell b{display:block;font-size:1.35rem;color:var(--text);font-variant-numeric:tabular-nums}
+.gate-blocked{color:var(--red);font-weight:700}.gate-ok{color:var(--green);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.4rem 0 2.2rem;color:var(--faint);font-size:.82rem}
 footer .wrap{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 """
@@ -780,7 +797,50 @@ def backtest_view():
     return page("Backtest", body, active="backtest")
 
 
-VERDICT_CLASS = {"supported": "up", "weak": "flat", "contradicted": "down", "gap": "flat"}
+def _trust_badge(v: dict) -> str:
+    """Colour-coded trust score. Gap claims are honest (grey), not red."""
+    if not v:
+        return "<span class='trust t-gap'>unchecked</span>"
+    if v.get("verdict") == "gap" or v.get("trust") is None:
+        return "<span class='trust t-gap'>✔ honest gap</span>"
+    t = v["trust"]
+    cls = "t-hi" if t >= 0.7 else "t-mid" if t >= 0.4 else "t-lo"
+    warn = " ⚠ contradicted" if v.get("verdict") == "contradicted" else ""
+    return f"<span class='trust {cls}'>trust {t:.2f}{warn}</span>"
+
+
+def _breakdown_html(v: dict) -> str:
+    """The deterministic component math behind the number — inspectable per claim."""
+    bd = v.get("breakdown") or {}
+    if not bd:
+        return ""
+    formula = (
+        f"citation {bd['citation_validity']} × grounding {bd['fact_grounding']} "
+        f"× source {bd['source_reliability']} × corrob {bd['corroboration']} "
+        f"× verdict {bd['verdict_multiplier']}  →  cap {bd['cap']}"
+    )
+    note = f" &nbsp;·&nbsp; <i>{esc(v['note'])}</i>" if v.get("note") else ""
+    return (f"<details class='bd'><summary>trust breakdown</summary>"
+            f"<code>{esc(formula)}</code>{note}</details>")
+
+
+def _trust_summary_html(summary: dict) -> str:
+    if not summary:
+        return ""
+    avg = summary.get("avg_trust")
+    pct = summary.get("pct_high_trust")
+    blocked = summary.get("fund_gate_blocked")
+    gate = ("<span class='gate-blocked'>⛔ funding gate BLOCKED</span>"
+            if blocked else "<span class='gate-ok'>✓ no contradictions</span>")
+    return (
+        "<div class='card' style='margin:1rem 0'><div class='trustbar'>"
+        f"<div class='cell'>avg trust<b>{avg if avg is not None else '—'}</b></div>"
+        f"<div class='cell'>high-trust claims<b>{pct if pct is not None else '—'}%</b></div>"
+        f"<div class='cell'>contradicted<b>{summary.get('contradicted', 0)}</b></div>"
+        f"<div class='cell'>honest gaps<b>{summary.get('gaps', 0)}</b></div>"
+        f"<div class='cell'>{gate}</div>"
+        "</div></div>"
+    )
 
 
 def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int,
@@ -790,17 +850,16 @@ def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int,
     for c in claims:
         cid = f"{section}:{c.get('id', idx)}"
         v = verdicts.get(cid, {})
-        verdict = v.get("verdict", "unchecked")
-        pill = VERDICT_CLASS.get(verdict, "flat")
+        ctype = v.get("claim_type")
+        ctype_html = (f" <span class='ctype'>{esc(ctype)}</span>"
+                      if ctype and ctype != "gap" else "")
         # Evidence anchors live on the founder timeline, not this page — link there.
         ev = " ".join(f"<a href='/founder/{entity_id}#ev{i}'>#{i}</a>"
                       for i in c.get("evidence_ids", []))
         gap = " <b>[GAP — flagged, not guessed]</b>" if c.get("gap") else ""
         out.append(
-            f"<li>{esc(c.get('text'))}{gap} "
-            f"<span class='pill {pill}' title='{esc(v.get('note', ''))}'>"
-            f"{verdict} · trust {v.get('trust', '—')}</span> "
-            f"<span class='note'>{ev}</span></li>"
+            f"<li class='claim'>{_trust_badge(v)}{ctype_html} {esc(c.get('text'))}{gap} "
+            f"<span class='note'>{ev}</span>{_breakdown_html(v)}</li>"
         )
         idx += 1
     return "".join(out), idx
@@ -826,6 +885,7 @@ def memo_view(entity_id: int, fresh: int = 0):
         for ax, v in r["axes"].items()
     )
     verdicts = {v["claim_id"]: v for v in r["validation"].get("verdicts", [])}
+    trust_summary_html = _trust_summary_html(r["validation"].get("summary"))
 
     sections_html, idx = "", 0
     memo = r["memo"]
@@ -872,12 +932,15 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"<a href='/memo/{entity_id}?fresh=1'>regenerate</a> · "
         f"<a href='/founder/{entity_id}'>evidence timeline</a></p></div>"
         f"{decision_html}"
+        f"{trust_summary_html}"
         f"<h3 class='reveal'>Three axes — scored independently, never averaged</h3>"
         f"<div class='axes'>{axes_html}</div>"
         f"{sections_html}"
-        f"<p class='note reveal'>Every claim carries a per-claim Trust Score from an "
-        f"adversarial validator that tried to refute it against the ledger. "
-        f"Evidence links jump to the founder timeline.</p>"
+        f"<p class='note reveal'>Trust is <b>deterministic</b>: the LLM only gives a "
+        f"verdict; the score = citation validity × fact-grounding × source "
+        f"reliability × corroboration × verdict. Numbers in a claim are checked "
+        f"against the cited event's payload, so a fabricated figure is caught in "
+        f"code, not by the model. Expand any claim's breakdown to see the math.</p>"
     )
     return page(f"Memo — {r['founder']}", body)
 
