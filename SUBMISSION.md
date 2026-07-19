@@ -70,8 +70,8 @@ gap flags, and the "we already knew you" inbound-outbound merge on /apply.
 
 ## Submission checklist
 
-- [ ] Flip repo public: `gh repo edit meeramer173/vc-brain --visibility public --accept-visibility-change-consequences`
-- [ ] Live demo URL: https://vc-brain.onrender.com (warm it up before judging)
-- [ ] Demo video: apply → banner → evidence click → /backtest → memo trust pills → decision
+- [x] Repo public: https://github.com/meeramer173/vc-brain
+- [x] Live demo URL (Railway): https://vc-brain-production-a828.up.railway.app
+- [ ] Demo video: apply → "we already knew you" banner → evidence click → /search NL query → /thesis flip → /backtest 2.62x → memo trust pills → decision
 - [ ] Paste the 6 sections above into the form
-- [ ] GitHub repo link in the form
+- [ ] GitHub repo link + live URL in the form
