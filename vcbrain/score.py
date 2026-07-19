@@ -186,6 +186,35 @@ def founder_score(
     )
 
 
+def slice_trend(
+    events: list[dict],
+    types: set[str],
+    as_of: str | None = None,
+    window_days: int = 90,
+) -> str:
+    """Deterministic trend for one axis's evidence slice: is activity of these
+    event types accelerating or fading? Compares the trailing window against the
+    window before it. Same philosophy as the Founder Score trend — a fold over
+    the ledger, not an LLM guess — so each axis can show its own honest
+    direction. No recent activity either side => 'stable'."""
+    ref = ledger.parse_ts(as_of) if as_of else datetime.now(timezone.utc)
+
+    def count(lo: datetime, hi: datetime) -> int:
+        return sum(
+            1 for e in events
+            if e["event_type"] in types
+            and lo <= ledger.parse_ts(e["event_ts"]) < hi
+        )
+
+    recent = count(ref - timedelta(days=window_days), ref + timedelta(days=1))
+    prior = count(ref - timedelta(days=2 * window_days), ref - timedelta(days=window_days))
+    if recent > prior:
+        return "improving"
+    if recent < prior:
+        return "declining"
+    return "stable"
+
+
 def rank_founders(
     conn: sqlite3.Connection, n: int = 10, as_of: str | None = None
 ) -> list[tuple[int, str, Breakdown]]:

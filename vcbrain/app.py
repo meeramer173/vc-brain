@@ -1393,7 +1393,8 @@ def memo_view(entity_id: int, fresh: int = 0):
     r = intelligence.generate_memo(conn, entity_id, fresh=False)
 
     axes_html = "".join(
-        f"<div class='card axis reveal'><span class='axname'>{esc(ax)}</span>"
+        f"<div class='card axis reveal'><span class='axname'>{esc(ax)}</span> "
+        f"{_trend_pill(v.get('trend', 'stable'))}"
         f"<div class='axscore num'>{v.get('score', '—')}<small>/10</small></div>"
         f"<div class='barrow' style='margin:.2rem 0 .5rem'><div class='track'>"
         f"<i style='width:{(v.get('score') or 0) * 10}%'></i></div></div>"

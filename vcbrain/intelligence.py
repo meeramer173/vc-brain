@@ -117,10 +117,15 @@ CITE_RULES = (
 )
 
 
+FOUNDER_SLICE = {"launch", "repo_launch", "paper", "hackathon_win"}
+MARKET_SLICE = {"application", "accelerator_batch", "launch"}
+IDEA_SLICE = {"launch", "repo_launch", "application"}
+
+
 def founder_axis(events: list[dict], breakdown) -> dict:
     ship = evidence_digest(events, {"launch", "repo_launch", "paper",
                                     "hackathon_win", "profile_snapshot"})
-    return _llm(
+    out = _llm(
         "You are the Founder axis agent of a VC brain. You see ONLY "
         "founder-behavior evidence (shipping history, wins, profile). Assess "
         "the PERSON: builder velocity, persistence, range. " + CITE_RULES +
@@ -133,11 +138,15 @@ def founder_axis(events: list[dict], breakdown) -> dict:
             "evidence": ship,
         }),
     )
+    # Trend is deterministic, never the LLM's: the Founder axis rides the
+    # Founder Score fold; the other two fold their own evidence slice.
+    out["trend"] = breakdown.trend
+    return out
 
 
 def market_axis(events: list[dict], thesis: dict) -> dict:
-    context = evidence_digest(events, {"application", "accelerator_batch", "launch"})
-    return _llm(
+    context = evidence_digest(events, MARKET_SLICE)
+    out = _llm(
         "You are the Market axis agent of a VC brain. You see ONLY the "
         "venture/market context (what they're building, for whom), NOT the "
         "founder's history. Rate the market: bullish, neutral, or bear, with "
@@ -148,11 +157,13 @@ def market_axis(events: list[dict], thesis: dict) -> dict:
         "confidence: float, insufficient_evidence: bool}",
         json.dumps({"thesis": thesis, "evidence": context}),
     )
+    out["trend"] = score.slice_trend(events, MARKET_SLICE)
+    return out
 
 
 def idea_axis(events: list[dict]) -> dict:
-    product = evidence_digest(events, {"launch", "repo_launch", "application"})
-    return _llm(
+    product = evidence_digest(events, IDEA_SLICE)
+    out = _llm(
         "You are the Idea-vs-Market axis agent of a VC brain. You see ONLY "
         "product evidence (what was actually shipped and how it was received). "
         "Judge: does the idea survive scrutiny as-is, or is this a bet that "
@@ -162,6 +173,8 @@ def idea_axis(events: list[dict]) -> dict:
         "confidence: float, insufficient_evidence: bool}",
         json.dumps({"evidence": product}),
     )
+    out["trend"] = score.slice_trend(events, IDEA_SLICE)
+    return out
 
 
 def draft_memo(name: str, events: list[dict], axes: dict, thesis: dict) -> dict:
