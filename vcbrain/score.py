@@ -33,6 +33,15 @@ SHIP_TYPES = {"launch", "repo_launch", "paper", "hackathon_win"}
 TREND_WINDOW_DAYS = 30
 TREND_EPSILON = 2.0  # score points; smaller moves count as "stable"
 
+# Cold-start: a founder whose score rests on too little independent evidence to
+# be treated as a track record. The brief's central rubric note — a system that
+# can't reason about pre-track-record founders "has just rebuilt the
+# network-gated system the challenge exists to replace." We compute a *support
+# confidence* (how well-evidenced the score is, NOT how high it is) and flag the
+# thin ones explicitly so the UI can switch to the cold-start reasoning path
+# instead of silently ranking them to the bottom.
+COLD_START_CONF = 0.4
+
 
 @dataclass
 class Breakdown:
@@ -44,6 +53,9 @@ class Breakdown:
     as_of: str
     trend: str = "stable"                  # improving | stable | declining
     notes: list[str] = field(default_factory=list)
+    confidence: float = 1.0                # 0..1 — how well-evidenced the score is
+    cold_start: bool = False               # thin, pre-track-record profile
+    cold_start_reasons: list[str] = field(default_factory=list)
 
 
 def _score_at(events: list[dict], as_of: datetime) -> tuple[dict, dict]:
@@ -132,15 +144,45 @@ def founder_score(
     if len(events) < 3:
         notes.append("low-evidence profile: score is weakly supported")
 
+    # Support confidence: how much *independent* evidence backs this number,
+    # separate from the number itself. Breadth of sources dominates (one
+    # gameable source is weak corroboration), then how much they've shipped,
+    # then external validation. This is the "how sure are we" that the memo
+    # keeps distinct from "how good are they".
+    real_sources = sorted({e["source"] for e in events if e["source"] != "system"})
+    n_ship = sum(1 for e in events if e["event_type"] in SHIP_TYPES)
+    ship_support = min(1.0, n_ship / 4)
+    confidence = round(
+        0.5 * norms["breadth"] + 0.3 * ship_support + 0.2 * norms["external_validation"],
+        2,
+    )
+
+    cold_start_reasons: list[str] = []
+    if len(real_sources) <= 1:
+        cold_start_reasons.append(
+            f"only {len(real_sources)} independent source"
+            f"{'s' if len(real_sources) != 1 else ''} — no cross-source corroboration yet"
+        )
+    if n_ship <= 1:
+        cold_start_reasons.append("little to no shipping history on record")
+    if norms["external_validation"] < 0.2:
+        cold_start_reasons.append("minimal external validation (stars / points)")
+    cold_start = confidence < COLD_START_CONF
+    if cold_start and not cold_start_reasons:
+        cold_start_reasons.append("thin overall footprint")
+
     return Breakdown(
         total=total,
         components=components,
         evidence=evidence,
         n_events=len(events),
-        sources=sorted({e["source"] for e in events if e["source"] != "system"}),
+        sources=real_sources,
         as_of=as_of,
         trend=trend,
         notes=notes,
+        confidence=confidence,
+        cold_start=cold_start,
+        cold_start_reasons=cold_start_reasons,
     )
 
 

@@ -790,6 +790,60 @@ def _gauge(total: float) -> str:
     )
 
 
+def _confidence_pill(conf: float) -> str:
+    """Support confidence — how well-evidenced the score is, distinct from how
+    high it is. Kept visually separate from the score so the two never blur."""
+    pct = round(conf * 100)
+    warn = conf < score.COLD_START_CONF
+    color = "#f0b32d" if warn else "#39d0ff"
+    return (
+        f"<span class='pill flat' style='border-color:{color};color:{color}' "
+        f"title='How well-evidenced the score is — not how high it is'>"
+        f"confidence {pct}%</span>"
+    )
+
+
+def _footprint_action(entity_id: int, label: str, primary: bool) -> str:
+    """The public-footprint (LinkedIn / X) enrichment button + result slot.
+    Rendered in exactly one place per page so the #profiles id stays unique."""
+    cls = "btn" if primary else "btn ghost"
+    return (
+        f"<a class='{cls}' style='margin-top:0;cursor:pointer' "
+        f"onclick='findProfiles(this)' data-entity='{entity_id}'>{label}</a> "
+        f"<span id='profiles' class='note' style='margin-left:.4rem'></span>"
+    )
+
+
+def _coldstart_panel(b, footprint_html: str) -> str:
+    """Explicit pre-track-record reasoning path — the brief's central rubric
+    note. We do NOT silently rank thin founders to the bottom; we say so and
+    show the method."""
+    reasons = "".join(f"<li>{esc(r)}</li>" for r in b.cold_start_reasons)
+    return (
+        "<div class='card reveal' style='border-color:#6b4e12;"
+        "background:linear-gradient(180deg,rgba(240,179,45,.06),transparent)'>"
+        "<p class='eyebrow' style='color:#f0b32d;margin:0'>Cold-start founder · "
+        "pre-track-record</p>"
+        "<h3 style='margin:.25rem 0 .4rem'>Scored, but deliberately held at low "
+        "confidence</h3>"
+        "<p class='note' style='max-width:46rem'>This founder has too little "
+        "independent history to treat the Founder Score as a track record. "
+        "Ranking them to the bottom would just rebuild the network-gated system "
+        "this tool exists to replace — so instead of hiding the uncertainty, we "
+        "switch to an explicit method:</p>"
+        f"<ul class='note' style='max-width:46rem'>{reasons}</ul>"
+        "<p class='note' style='max-width:46rem'><b>Method:</b> (1) the score "
+        "stays provisional and low-confidence — never shown as a track record; "
+        "(2) we lean on what a track-record-only system misses — the application "
+        "one-liner and any early prototype signal; (3) we enrich from the "
+        "founder's public footprint to find corroboration off the usual VC "
+        "radar. A first-time founder with no funding or GitHub still leaves a "
+        "footprint.</p>"
+        f"{footprint_html}"
+        "</div>"
+    )
+
+
 @app.get("/founder/{entity_id}", response_class=HTMLResponse)
 def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
     conn = db.connect()
@@ -840,22 +894,39 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         + f"</td><td class='num'>{e['payload'].get('points') or e['payload'].get('stars') or ''}</td></tr>"
         for e in reversed(events)
     )
+    # The public-footprint enrichment lives in exactly one place: the cold-start
+    # panel when thin (primary action), the profile card otherwise (secondary).
+    cold_panel = ""
+    footprint_here = ""
+    if b.cold_start:
+        cold_panel = _coldstart_panel(
+            b, _footprint_action(entity_id, "Enrich from public footprint →", primary=True)
+        )
+    else:
+        footprint_here = (
+            f"<div style='margin:0 0 .8rem'>"
+            f"{_footprint_action(entity_id, 'Find LinkedIn / X profile', primary=False)}</div>"
+        )
+
+    cold_flag = (
+        "<span class='pill flat' style='border-color:#f0b32d;color:#f0b32d' "
+        "title='Too little independent evidence to treat as a track record'>cold-start</span>"
+        if b.cold_start else ""
+    )
     profile = (
         f"<div class='card profile reveal'>{_gauge(b.total)}"
         f"<div style='flex:1;min-width:240px'>"
         f"<p class='eyebrow' style='margin:0'>Founder profile · as of {esc(b.as_of[:10])}</p>"
-        f"<h2>{esc(row['canonical_name'])} {_trend_pill(b.trend)}</h2>"
+        f"<h2>{esc(row['canonical_name'])} {_trend_pill(b.trend)} "
+        f"{_confidence_pill(b.confidence)} {cold_flag}</h2>"
         f"<p class='note' style='margin:.2rem 0 .8rem'>{_handles_html(row['handles'])}</p>"
-        f"<div style='margin:0 0 .8rem'>"
-        f"<a class='btn ghost' style='margin-top:0;cursor:pointer' "
-        f"onclick='findProfiles(this)' data-entity='{entity_id}'>Find LinkedIn / X profile</a> "
-        f"<span id='profiles' class='note' style='margin-left:.4rem'></span></div>"
+        f"{footprint_here}"
         f"<a class='btn' href='/memo/{entity_id}' style='margin-top:0'>Investment memo &amp; "
         f"$100K decision →</a></div></div>"
     )
     body = (
         f"<p><a class='btn ghost' href='/?view=founders' style='margin-top:0'>← All founders</a></p>"
-        f"{banner}{profile}"
+        f"{banner}{profile}{cold_panel}"
         f"<h3 class='reveal'>How the Founder Score ({b.total}) was calculated{_info('Deterministic: same events in, same score out. No AI.')}</h3>"
         f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 tally of "
         f"how much this person ships — five weighted components that add up to 100. Every point "
