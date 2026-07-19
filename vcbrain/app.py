@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import contacts as contacts_mod
 from . import curated as curated_mod
+from . import deck as deck_mod
 from . import db, intelligence, ledger, score
 from . import search as search_mod
 from . import thesis as thesis_mod
@@ -382,6 +383,50 @@ def _contact_block(contact: dict | None) -> str:
         "Verified contact · self-declared</span><br>"
         + " ".join(chips) + "</div>"
     )
+
+
+def _deck_panel(payload: dict) -> str:
+    """Show the self-reported pitch-deck extract + the deterministic deck-vs-
+    ledger cross-check. Everything is labeled self-reported; it never feeds the
+    Founder Score."""
+    deck = payload.get("deck")
+    err = payload.get("deck_error")
+    if not deck:
+        if err:
+            return ("<div class='card reveal'><p class='eyebrow'>Pitch deck</p>"
+                    f"<p class='note'>Uploaded deck could not be read: {esc(err)}.</p></div>")
+        return ""
+    fields = ""
+    for label, key in (("Problem", "problem"), ("Product", "product"),
+                       ("Market", "market"), ("Team", "team"), ("Ask", "ask")):
+        v = deck.get(key)
+        if v:
+            fields += (f"<tr><td class='num' style='white-space:nowrap'>{label}</td>"
+                       f"<td>{esc(str(v))}</td></tr>")
+    colors = {"contradicted": "var(--red)", "overstated": "var(--amber)",
+              "corroborated": "var(--green)", "unverifiable": "var(--faint)"}
+    vrows = ""
+    for r in (payload.get("deck_verification") or []):
+        claimed = r.get("claimed")
+        claimed_s = f"{claimed:,}" if isinstance(claimed, int) else str(claimed)
+        known = r.get("known")
+        known_s = "—" if known is None else f"{known:,}"
+        c = colors.get(r.get("status"), "var(--muted)")
+        vrows += (f"<tr><td>{esc(r.get('metric', ''))}</td>"
+                  f"<td class='num'>{esc(claimed_s)}</td><td class='num'>{esc(known_s)}</td>"
+                  f"<td><span class='pill' style='border-color:{c};color:{c}'>{esc(r.get('status', ''))}</span></td>"
+                  f"<td class='note'>{esc(r.get('note', ''))}</td></tr>")
+    vtable = ""
+    if vrows:
+        vtable = ("<h4 style='margin:.9rem 0 .3rem'>Deck claims vs. what we independently know</h4>"
+                  "<div class='tablewrap'><table><tr><th>claimed metric</th><th>deck says</th>"
+                  "<th>our ledger</th><th>check</th><th></th></tr>" + vrows + "</table></div>")
+    ferr = f"<p class='note'>Note: {esc(err)}</p>" if err else ""
+    return ("<div class='card reveal'>"
+            "<p class='eyebrow'>Pitch deck · self-reported (extracted from the upload, unverified)</p>"
+            f"<p style='margin:.2rem 0 .6rem'><b>{esc(deck.get('one_liner', ''))}</b></p>"
+            + (f"<div class='tablewrap'><table>{fields}</table></div>" if fields else "")
+            + vtable + ferr + "</div>")
 
 
 def _trend_pill(trend: str) -> str:
@@ -965,9 +1010,10 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<a class='btn' href='/memo/{entity_id}' style='margin-top:0'>Investment memo &amp; "
         f"$100K decision →</a> {activate_btn}</div></div>"
     )
+    deck_panel = _deck_panel(apps[-1]["payload"]) if apps else ""
     body = (
         f"<p><a class='btn ghost' href='/?view=founders' style='margin-top:0'>← All founders</a></p>"
-        f"{banner}{profile}{cold_panel}"
+        f"{banner}{profile}{deck_panel}{cold_panel}"
         f"<h3 class='reveal'>How the Founder Score ({b.total}) was calculated{_info('Deterministic: same events in, same score out. No AI.')}</h3>"
         f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 measure of "
         f"execution, experience, and technical depth — seven weighted components that add up to 100. "
@@ -1061,14 +1107,20 @@ def apply_form():
     <div class='hero reveal'>
     <p class='eyebrow'>Founder portal · standalone</p>
     <h1>Apply for a <span class='grad'>$100K</span> check.</h1>
-    <p class='sub'>Minimum bar: company + name. Handles are optional — if we've seen
-    you before, we already know. Investors never see this form; your application shows
-    up in their Inbound queue, already scored.</p></div>
+    <p class='sub'>Minimum bar: company + name. Attach your pitch deck (.pptx) and
+    we read the slides for you. Handles are optional — if we've seen you before, we
+    already know. Investors never see this form; your application shows up in their
+    Inbound queue, already scored.</p></div>
     <div class='card reveal' style='max-width:560px;padding:1.4rem 1.5rem'>
-    <form method='post' action='/apply'>
+    <form method='post' action='/apply' enctype='multipart/form-data'>
       <label>Founder name *</label><input name='name' required>
       <label>Company name *</label><input name='company' required>
-      <label>One-liner</label><input name='one_liner'>
+      <label>Pitch deck (.pptx) — optional, recommended</label>
+      <input type='file' name='deck' accept='.pptx'>
+      <p class='note' style='margin:.15rem 0 .7rem'>We extract your story from the
+      slides and cross-check any claimed traction against what we've independently
+      sourced. Self-reported numbers are labeled as such — never counted as verified.</p>
+      <label>One-liner (optional — we'll use the deck's if blank)</label><input name='one_liner'>
       <div class='formgrid'>
       <div><label>HN username</label><input name='hn'></div>
       <div><label>GitHub username</label><input name='github'></div>
@@ -1086,6 +1138,34 @@ async def apply_submit(request: Request):
     company = (form.get("company") or "").strip()
     if not name or not company:
         return RedirectResponse("/apply", status_code=303)
+
+    # Optional pitch deck (.pptx): parse slides → structured, self-reported
+    # claims. Every failure degrades to an honest note — a bad file never
+    # blocks the application (nor the demo).
+    deck_extract, deck_error = None, None
+    upload = form.get("deck")
+    filename = getattr(upload, "filename", "") or ""
+    if filename:
+        try:
+            data = await upload.read()
+            if len(data) > 15 * 1024 * 1024:
+                deck_error = "deck too large (15 MB max)"
+            elif not filename.lower().endswith(".pptx"):
+                deck_error = "unsupported file — .pptx only for now"
+            else:
+                text = deck_mod.extract_text(data)
+                if not text.strip():
+                    deck_error = "no readable text found in the deck"
+                else:
+                    try:
+                        deck_extract = intelligence.extract_deck(text)
+                    except Exception:
+                        deck_extract = {"one_liner": "",
+                                        "note": "LLM extraction unavailable — raw text kept",
+                                        "_unparsed_text": text[:2000]}
+        except Exception:
+            deck_error = "could not read the deck file"
+
     handles: dict = {}
     if form.get("hn"):
         handles["hn"] = form["hn"].strip()
@@ -1093,18 +1173,45 @@ async def apply_submit(request: Request):
         handles["github"] = form["github"].strip()
     if form.get("url"):
         handles["urls"] = [form["url"].strip()]
+    # Enrich handles from the deck when the founder didn't type them, so the
+    # "we already knew you" merge can fire off the deck alone.
+    dh = (deck_extract or {}).get("handles") or {}
+    if dh.get("github") and "github" not in handles:
+        handles["github"] = deck_mod.bare_handle(dh["github"])
+    if dh.get("hn") and "hn" not in handles:
+        handles["hn"] = deck_mod.bare_handle(dh["hn"])
+    if dh.get("website") and "urls" not in handles:
+        handles["urls"] = [str(dh["website"]).strip()]
     if not handles:
         handles = {"applicant_name": name.lower()}
 
     conn = db.connect()
     eid = Resolver(conn).get_or_create("person", name, handles)
+
+    # Deterministic deck-claim vs independent-evidence check (once we know eid).
+    deck_verification = None
+    if deck_extract and deck_extract.get("claimed_metrics"):
+        deck_verification = deck_mod.verify_against_ledger(
+            conn, eid, deck_extract["claimed_metrics"])
+
+    one_liner = ((form.get("one_liner") or "").strip()
+                 or (deck_extract or {}).get("one_liner") or "")
+    payload: dict = {"company": company, "one_liner": one_liner, "founder_name": name}
+    if deck_extract:
+        payload["deck"] = deck_extract
+        payload["deck_filename"] = filename
+    if deck_verification:
+        payload["deck_verification"] = deck_verification
+    if deck_error:
+        payload["deck_error"] = deck_error
+
     now = ledger.utcnow_iso()
-    ledger.record(
-        conn, eid, "inbound", "application", now,
-        f"inbound:app:{company.lower()}:{now[:10]}",
-        {"company": company, "one_liner": (form.get("one_liner") or "").strip(),
-         "founder_name": name},
-    )
+    # A deck-bearing application always records (unique key) so an upload is
+    # never deduped against an earlier same-day application; the plain path
+    # keeps its same-day idempotency.
+    dedup = (f"inbound:app:{company.lower()}:{now}" if deck_extract
+             else f"inbound:app:{company.lower()}:{now[:10]}")
+    ledger.record(conn, eid, "inbound", "application", now, dedup, payload)
     return RedirectResponse(f"/founder/{eid}?applied=1", status_code=303)
 
 

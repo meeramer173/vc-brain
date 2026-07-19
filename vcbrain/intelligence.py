@@ -87,6 +87,31 @@ def parse_query(q: str) -> dict:
     return spec
 
 
+DECK_SCHEMA = (
+    "You extract a founder's pitch deck / product doc into structured fields "
+    "for a VC brain. Use ONLY what the deck actually says — every field that "
+    "isn't stated must be null (or [] for lists). NEVER invent traction, "
+    "revenue, users, or facts. Parse numbers to integers where clearly stated "
+    "(e.g. '12k stars' -> 12000, '$1.2M ARR' -> 1200000). These are the "
+    "founder's SELF-REPORTED claims — extract them faithfully; verification "
+    "happens downstream. Respond JSON: {company: string|null, founder_name: "
+    "string|null, one_liner: string (<=25 words, the deck's own pitch), "
+    "problem: string|null, product: string|null, market: string|null, team: "
+    "string|null, ask: string|null, sectors: [string] (topic keywords), "
+    "handles: {github: string|null, hn: string|null, linkedin: string|null, "
+    "website: string|null}, claimed_metrics: {github_stars: int|null, users: "
+    "int|null, arr_usd: int|null, growth: string|null, other: [string]}, "
+    "highlights: [string] (notable self-reported claims, verbatim, <=6)}"
+)
+
+
+def extract_deck(deck_text: str) -> dict:
+    """LLM edge: pitch-deck slide text -> structured, memo-shaped claims.
+    Self-reported only; the downstream deck.verify_against_ledger + validator
+    are what test the claims. Raises on no key / failure — caller degrades."""
+    return _llm(DECK_SCHEMA, json.dumps({"deck_text": deck_text}), max_tokens=1200)
+
+
 def evidence_digest(events: list[dict], types: set[str] | None = None) -> list[dict]:
     """Compact, id-bearing evidence rows. The LLM may only cite these ids."""
     rows = []
