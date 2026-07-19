@@ -523,21 +523,23 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
         # PANEL 1 (maximised) — full editable thesis; PANEL 2 (minimised) —
         # inbound applications + a ready-to-rank teaser.
         disq = ", ".join(th.get("disqualifiers", []))
+        wide = "width:100%;max-width:760px"
         panel1 = (
             "<div class='card reveal'><p class='eyebrow'>Step 1 · Your fund thesis</p>"
-            "<h2 style='margin:.2rem 0'>What kind of founder are you looking for?</h2>"
-            "<p class='note' style='max-width:46rem'>Every founder we've already sourced is "
-            "ranked through this lens. Edit anything, then re-rank.</p>"
+            "<h2 style='margin:.15rem 0'>What kind of founder are you looking for?</h2>"
+            "<p class='note' style='max-width:46rem;margin:.1rem 0 .3rem'>Every founder we've "
+            "already sourced is ranked through this lens. Edit anything, then re-rank.</p>"
             "<form method='post' action='/thesis' onsubmit='return showFinding()'>"
             "<input type='hidden' name='next' value='/?view=founders'>"
-            f"<label>Fund name</label>"
-            f"<input name='fund_name' value=\"{esc(th['fund_name'])}\" style='width:100%;max-width:640px'>"
+            f"<label>Fund name</label><input name='fund_name' value=\"{esc(th['fund_name'])}\" style='{wide}'>"
             f"<label>Sectors — comma separated {_info('Keywords matched against what each founder has built. 1 match = 50% fit, 2+ = 100%.')}</label>"
-            f"<input name='sectors' value=\"{esc(th_sectors)}\" style='width:100%;max-width:640px'>"
+            f"<input name='sectors' value=\"{esc(th_sectors)}\" style='{wide}'>"
             f"<label>Disqualifiers — comma separated, hard gate {_info('Any founder whose work matches these is excluded outright (e.g. crypto/token, consultancy).')}</label>"
-            f"<input name='disqualifiers' value=\"{esc(disq)}\" style='width:100%;max-width:640px'>"
+            f"<input name='disqualifiers' value=\"{esc(disq)}\" style='{wide}'>"
+            f"<label>Ownership target</label>"
+            f"<input name='ownership_target' value=\"{esc(th.get('ownership_target', ''))}\" style='{wide}'>"
             "<div class='formgrid'>"
-            f"<div><label>Risk appetite — high / medium / low {_info('high = back exceptional people even off-thesis; low = stricter bars.')}</label>"
+            f"<div><label>Risk appetite {_info('high = back exceptional people even off-thesis; low = stricter bars.')}</label>"
             f"<input name='risk_appetite' value=\"{esc(th.get('risk_appetite', ''))}\"></div>"
             f"<div><label>Check size (USD)</label>"
             f"<input name='check_size_usd' value=\"{esc(th.get('check_size_usd', ''))}\"></div>"
@@ -545,8 +547,6 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
             f"<input name='stage' value=\"{esc(th.get('stage', ''))}\"></div>"
             f"<div><label>Geography {_info('Recorded but not filtered yet — current sources carry no reliable location signal.')}</label>"
             f"<input name='geography' value=\"{esc(th.get('geography', ''))}\"></div>"
-            f"<div><label>Ownership target</label>"
-            f"<input name='ownership_target' value=\"{esc(th.get('ownership_target', ''))}\"></div>"
             "</div>"
             "<button class='btn'>🔍 Find founders →</button></form></div>"
         )
@@ -574,7 +574,7 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
                 + f" · <a href='/founder/{aeid}?applied=1'>review →</a></div>"
             )
         inbound_panel = (
-            "<div class='card reveal'><p class='eyebrow'>Inbound applications</p>"
+            "<div class='card reveal' style='margin-top:1.4rem'><p class='eyebrow'>Inbound applications</p>"
             f"<h3 style='margin:.2rem 0'>{len(seen)} founder application"
             f"{'s' if len(seen) != 1 else ''} waiting</h3>"
             "<p class='note' style='max-width:46rem'>These founders applied to you. Before "
@@ -1214,10 +1214,12 @@ def memo_view(entity_id: int, fresh: int = 0):
         fit_desc = (f"disqualified: {', '.join(tf['disqualified'])}" if tf["disqualified"]
                     else f"fit {tf['fit']:.0%}" + (f" (matched: {', '.join(tf['matched'][:5])})" if tf["matched"] else " — off-thesis"))
         fit_line = f"<br><span class='note'>thesis lens: {esc(fit_desc)}</span>"
+    verdict_txt = d["decision"] if fund else "DECLINE — do not fund"
     decision_html = (
-        f"<div class='banner {'go' if fund else 'no'} reveal' style='font-size:1.1rem'>"
-        f"<b>{'✓' if fund else '✗'} {esc(d['decision'])}</b> — {esc('; '.join(d['reasons']))}"
-        f"<br><span class='note'>deterministic rule: {esc(d['rule'])} · "
+        f"<div class='banner {'go' if fund else 'no'} reveal'>"
+        f"<div style='font-size:1.35rem;font-weight:750'>{'✅' if fund else '🚫'} {esc(verdict_txt)}</div>"
+        f"<div style='margin-top:.35rem'><b>Why:</b> {esc('; '.join(d['reasons']))}</div>"
+        f"<span class='note'>deterministic rule: {esc(d['rule'])} · "
         f"LLM writes rationale, never the decision</span>{fit_line}</div>"
     )
     body = (

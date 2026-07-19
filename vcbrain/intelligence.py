@@ -251,7 +251,7 @@ def decide(breakdown, axes: dict, validation: dict, thesis: dict, fit) -> dict:
         reasons.append("all bars cleared through the fund lens, no contradicted claims")
     check = thesis.get("check_size_usd", 100000)
     return {
-        "decision": f"FUND ${check:,.0f}" if fund else "PASS",
+        "decision": f"FUND ${check:,.0f}" if fund else "DECLINE — do not fund",
         "rule": (f"risk_appetite={bars['appetite']}: fund iff no disqualifier AND "
                  f"founder>={bars['founder_bar']} AND market!=bear AND "
                  f"(idea>={bars['idea_bar']} OR founder>=8) AND on-thesis "
