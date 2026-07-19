@@ -156,3 +156,91 @@ def fetch_web_signals(
                     )
                 )
     return signals
+
+
+PROFILE_DOMAINS = ["linkedin.com", "x.com", "twitter.com"]
+
+
+def _x_kind(low: str) -> str | None:
+    """Classify an x.com/twitter.com URL: 'profile' (bare @handle), 'post'
+    (a specific tweet), or None (non-profile page like /home, /search)."""
+    for host in ("x.com/", "twitter.com/"):
+        i = low.find(host)
+        if i == -1:
+            continue
+        seg = [s for s in low[i + len(host):].split("/") if s]
+        if not seg:
+            return None
+        if "status" in seg:
+            return "post"
+        if len(seg) == 1 and seg[0] not in {
+            "i", "home", "search", "explore", "hashtag", "notifications",
+            "messages", "settings",
+        }:
+            return "profile"
+    return None
+
+
+def find_profiles(name: str, min_relevance: float = 0.3) -> dict:
+    """Resolve a founder's public LinkedIn / X presence via Tavily's index
+    (no scraping, no login). Name-guarded, so it returns the right person or
+    nothing — never a stranger. Prefers the person's OWN profile; falls back
+    to a public mention, labeled honestly (profile vs mention/post). Powers
+    the "does this founder actually exist" links on the founder page.
+
+    Returns {"linkedin": {"url","type"}|None, "x": {"url","type"}|None}.
+    """
+    key = _api_key()
+    body = {
+        "query": f'"{name}"',
+        "search_depth": "advanced",
+        "topic": "general",
+        "max_results": 10,
+        "include_raw_content": False,
+        "include_answer": False,
+        "include_domains": PROFILE_DOMAINS,
+    }
+    try:
+        resp = httpx.post(
+            SEARCH_URL,
+            headers={"Authorization": f"Bearer {key}"},
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+    except (httpx.HTTPError, ValueError):
+        return {"linkedin": None, "x": None}
+
+    # best (relevance, url) per bucket
+    li_profile = li_mention = x_profile = x_post = (0.0, None)
+    for r in results:
+        url = r.get("url") or ""
+        low = url.lower()
+        rel = float(r.get("score") or 0.0)
+        if rel < min_relevance or not _mentions(name, r.get("title"), r.get("content")):
+            continue
+        if "linkedin.com/in/" in low:  # the person's own profile
+            if rel > li_profile[0]:
+                li_profile = (rel, url)
+        elif "linkedin.com/" in low:  # a post/article naming them
+            if rel > li_mention[0]:
+                li_mention = (rel, url)
+        else:
+            kind = _x_kind(low)
+            if kind == "profile" and rel > x_profile[0]:
+                x_profile = (rel, url)
+            elif kind == "post" and rel > x_post[0]:
+                x_post = (rel, url)
+
+    def pick(primary, primary_type, fallback, fallback_type):
+        if primary[1]:
+            return {"url": primary[1], "type": primary_type}
+        if fallback[1]:
+            return {"url": fallback[1], "type": fallback_type}
+        return None
+
+    return {
+        "linkedin": pick(li_profile, "profile", li_mention, "mention"),
+        "x": pick(x_profile, "profile", x_post, "post"),
+    }

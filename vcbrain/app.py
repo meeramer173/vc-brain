@@ -846,6 +846,10 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<p class='eyebrow' style='margin:0'>Founder profile · as of {esc(b.as_of[:10])}</p>"
         f"<h2>{esc(row['canonical_name'])} {_trend_pill(b.trend)}</h2>"
         f"<p class='note' style='margin:.2rem 0 .8rem'>{_handles_html(row['handles'])}</p>"
+        f"<div style='margin:0 0 .8rem'>"
+        f"<a class='btn ghost' style='margin-top:0;cursor:pointer' "
+        f"onclick='findProfiles(this)' data-entity='{entity_id}'>Find LinkedIn / X profile</a> "
+        f"<span id='profiles' class='note' style='margin-left:.4rem'></span></div>"
         f"<a class='btn' href='/memo/{entity_id}' style='margin-top:0'>Investment memo &amp; "
         f"$100K decision →</a></div></div>"
     )
@@ -863,6 +867,21 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<div class='tablewrap reveal'><table>"
         f"<tr><th>id</th><th>when</th><th>signal</th><th>what</th><th>pts</th></tr>{timeline}"
         f"</table></div>"
+    )
+    body += (
+        "<script>function findProfiles(el){"
+        "var id=el.getAttribute('data-entity');"
+        "var out=document.getElementById('profiles');"
+        "el.textContent='Searching the web...';el.style.pointerEvents='none';"
+        "fetch('/api/founder/'+id+'/profiles').then(function(r){return r.json();}).then(function(d){"
+        "el.style.display='none';"
+        "if(d.error){out.innerHTML=\"<span class='chip'>web lookup unavailable</span>\";return;}"
+        "var c=[];"
+        "if(d.linkedin)c.push(\"<a class='chip' target='_blank' rel='noopener' href='\"+d.linkedin.url+\"'>LinkedIn \"+d.linkedin.type+\"</a>\");"
+        "if(d.x)c.push(\"<a class='chip' target='_blank' rel='noopener' href='\"+d.x.url+\"'>X \"+d.x.type+\"</a>\");"
+        "out.innerHTML=c.length?c.join(' '):\"<span class='chip'>no public profile found</span>\";"
+        "}).catch(function(){el.style.display='none';out.innerHTML=\"<span class='chip'>lookup failed</span>\";});}"
+        "</script>"
     )
     return page(row["canonical_name"], body)
 
@@ -1287,3 +1306,36 @@ def api_founder(entity_id: int, as_of: str | None = None):
         "notes": b.notes, "as_of": b.as_of,
         "events": ledger.events_for(conn, entity_id, as_of=cutoff),
     })
+
+
+# Resolved public-profile links, cached per entity for the session so a
+# re-click (or a re-view) is instant and spends no extra Tavily credits.
+_PROFILE_CACHE: dict = {}
+
+
+@app.get("/api/founder/{entity_id}/profiles")
+def api_founder_profiles(entity_id: int):
+    """Live LinkedIn / X profile lookup for a founder (dynamic, not seeded).
+    Name-guarded via the Tavily connector; returns {linkedin, x} or an
+    `error` field the UI degrades on. Never 500s the page."""
+    import os
+
+    from .connectors import tavily
+
+    if not os.environ.get("TAVILY_API_KEY"):
+        return JSONResponse({"error": "not configured"})
+    if entity_id in _PROFILE_CACHE:
+        return JSONResponse(_PROFILE_CACHE[entity_id])
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT canonical_name FROM entities WHERE id=?", (entity_id,)
+    ).fetchone()
+    if row is None:
+        return JSONResponse({"error": "no such entity"}, status_code=404)
+    try:
+        res = tavily.find_profiles(row["canonical_name"])
+    except Exception:
+        return JSONResponse({"error": "lookup failed"})
+    res["name"] = row["canonical_name"]
+    _PROFILE_CACHE[entity_id] = res
+    return JSONResponse(res)
