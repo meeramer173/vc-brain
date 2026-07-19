@@ -10,6 +10,10 @@ Four founders apply, giving the demo every outcome:
 Memos are baked deterministically (trust.py computes the numbers; no LLM), so
 the whole story is demo-proof.
 
+Also seeds one outbound-sourced founder — Owen Colegrove (SciPhi, GitHub
+emrgnt-cmplxty) — with real repos + his self-declared GitHub email/LinkedIn, to
+demonstrate the Verified-contact block and Activate's real send destination.
+
 Usage:
   python seed_demo.py --golden                                   # into vcbrain.db (local)
   python seed_demo.py --golden --db data/vcbrain-seed.sqlite3    # into the committed snapshot
@@ -18,7 +22,7 @@ Usage:
 import argparse
 from datetime import datetime, timedelta, timezone
 
-from vcbrain import db, intelligence, ledger, score, trust
+from vcbrain import contacts, db, intelligence, ledger, score, trust
 from vcbrain import thesis as thesis_mod
 from vcbrain.entities import Resolver
 
@@ -190,6 +194,53 @@ def bake(conn, spec: dict) -> tuple[int, dict]:
     return eid, decision
 
 
+# Outbound-sourced founders: we found them from public signals; they have NOT
+# applied. Owen is the worked example for the self-declared-contact + Activate
+# feature. Values are the REAL ones from the GitHub API (repo stars/dates, and
+# the email/LinkedIn he publicly declares in his bio + social_accounts),
+# hardcoded so the seed stays deterministic and offline — no live fetch needed.
+OUTBOUND_FOUNDERS = [
+    {
+        "name": "Owen Colegrove",
+        "github": "emrgnt-cmplxty",
+        "urls": ["https://github.com/emrgnt-cmplxty"],
+        # (repo, stars, language, event_ts, description, url) — real values;
+        # event_ts is each repo's real creation date.
+        "repos": [
+            ("emrgnt-cmplxty/automata", 680, "Python", "2023-06-20T00:00:00Z",
+             "Automata: A self-coding agent", "https://github.com/emrgnt-cmplxty/automata"),
+            ("emrgnt-cmplxty/zero-shot-replication", 74, "Python", "2023-08-24T00:00:00Z",
+             "", "https://github.com/emrgnt-cmplxty/zero-shot-replication"),
+            ("emrgnt-cmplxty/SmolTrainer", 21, "Python", "2023-08-31T00:00:00Z",
+             "", "https://github.com/emrgnt-cmplxty/SmolTrainer"),
+        ],
+        # Self-declared on GitHub: email in the profile bio, LinkedIn in social_accounts.
+        "contact": {
+            "email": "owen@sciphi.ai",
+            "linkedin": "https://www.linkedin.com/in/owencolegrove",
+            "twitter": "ocolegro", "blog": None,
+            "sources": {"email": "github:bio", "linkedin": "github:social_accounts"},
+        },
+    },
+]
+
+
+def seed_outbound(conn, spec: dict) -> int:
+    """Seed an outbound-sourced founder: real repo shipping signals + the
+    contact info they self-declared on GitHub. Idempotent — stable repo dedup
+    keys, and record_contact is content-addressed. No memo/application (they
+    haven't applied); the founder page + Activate read this directly."""
+    eid = Resolver(conn).get_or_create(
+        "person", spec["name"], {"github": spec["github"], "urls": spec["urls"]})
+    for (repo, stars, lang, ts, desc, url) in spec["repos"]:
+        ledger.record(
+            conn, eid, "github", "repo_launch", ts, f"github:demo-outbound:{repo}",
+            {"repo": repo, "stars": stars, "language": lang, "description": desc, "url": url},
+        )
+    contacts.record_contact(conn, eid, dict(spec["contact"]))
+    return eid
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--golden", action="store_true", help="bake deterministic memos (no LLM)")
@@ -205,6 +256,9 @@ def main() -> None:
                 "person", spec["name"],
                 {"github": spec["github"], "applicant_name": spec["name"].lower()})
             print(f"  seeded {spec['company']} → #{eid}")
+    for spec in OUTBOUND_FOUNDERS:
+        eid = seed_outbound(conn, spec)
+        print(f"  outbound {spec['name']:<16} → #{eid}  (self-declared contact)")
     print(f"done ({args.db})")
 
 
