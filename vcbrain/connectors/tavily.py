@@ -190,6 +190,12 @@ def find_profiles(name: str, min_relevance: float = 0.3) -> dict:
 
     Returns {"linkedin": {"url","type"}|None, "x": {"url","type"}|None}.
     """
+    # Handle-like names (a single token, e.g. a github username) can't be
+    # reliably resolved to a real person, and single common tokens invite
+    # false positives ("modinfo" matches a Linux-kernel article). Only
+    # attempt a real "First Last" — otherwise abstain honestly.
+    if len(name.split()) < 2:
+        return {"linkedin": None, "x": None}
     key = _api_key()
     body = {
         "query": f'"{name}"',
