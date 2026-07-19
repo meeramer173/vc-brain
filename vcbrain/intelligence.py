@@ -57,6 +57,36 @@ def _llm(system: str, user: str, max_tokens: int = 2000) -> dict:
     return json.loads(resp.json()["choices"][0]["message"]["content"])
 
 
+QUERY_SCHEMA = (
+    "Translate a VC's free-text founder query into a structured filter over a "
+    "founder-signal database. Per founder the database knows: which public "
+    "sources vouch for them (github repos, arxiv papers, Show HN launches, "
+    "Devpost hackathon wins, YC/accelerator batches), the TEXT of what they "
+    "built, programming languages (from github), and a deterministic Founder "
+    "Score 0-100 with a trend. It does NOT know location/geography, funding or "
+    "VC history, revenue, or team size. Map the query ONLY to the fields below; "
+    "put any constraint you cannot map into `unmappable` (verbatim) so the "
+    "system can disclose it honestly. Never invent constraints the user did not "
+    "ask for. Respond JSON: {sectors: [string]  // topic/sector keywords to "
+    "match in what they built, e.g. 'ai infra','developer tools','enterprise'; "
+    "technical: bool  // requires code or research evidence; researcher: bool  "
+    "// requires a published paper; hackathon_winner: bool; accelerator: bool  "
+    "// requires a top-tier accelerator batch e.g. YC; languages: [string]  // "
+    "lowercase programming languages; min_founder_score: number|null; trend: "
+    "'improving'|null; unmappable: [string]}"
+)
+
+
+def parse_query(q: str) -> dict:
+    """LLM edge: free-text founder query -> structured, inspectable filter spec.
+    The LLM only extracts intent; all matching/ranking downstream is
+    deterministic (see search.py). Raises if no key / the call fails —
+    search.py wraps this with a deterministic fallback so the demo never dies."""
+    spec = _llm(QUERY_SCHEMA, json.dumps({"query": q}), max_tokens=600)
+    spec["raw"] = q
+    return spec
+
+
 def evidence_digest(events: list[dict], types: set[str] | None = None) -> list[dict]:
     """Compact, id-bearing evidence rows. The LLM may only cite these ids."""
     rows = []

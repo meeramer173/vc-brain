@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import db, intelligence, ledger, score
+from . import search as search_mod
 from . import thesis as thesis_mod
 from .entities import Resolver
 
@@ -46,7 +47,8 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
         f"<style>{CSS}</style></head><body>"
         f"<h1><a href='/'>The VC Brain</a></h1>"
-        f"<nav><a href='/'>Founders</a> <a href='/apply'>Apply (inbound)</a> "
+        f"<nav><a href='/'>Founders</a> <a href='/search'>Search</a> "
+        f"<a href='/apply'>Apply (inbound)</a> "
         f"<a href='/thesis'>Thesis</a> <a href='/backtest'>Backtest</a></nav>{body}</body></html>"
     )
 
@@ -126,6 +128,111 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
         f"<table>{header}{rows}</table>"
     )
     return page("The VC Brain — ranked founders", body)
+
+
+EXAMPLE_QUERY = ("technical founder, AI infra, enterprise traction, "
+                 "no prior VC backing, top-tier accelerator")
+
+
+def _spec_chips(spec: dict) -> str:
+    """Render the parsed query so the LLM edge is fully inspectable."""
+    chips = []
+    if spec.get("sectors"):
+        chips.append(f"sectors: {esc(', '.join(spec['sectors']))}")
+    for flag, label in [("technical", "technical"), ("researcher", "researcher"),
+                        ("hackathon_winner", "hackathon winner"),
+                        ("accelerator", "top-tier accelerator")]:
+        if spec.get(flag):
+            chips.append(label)
+    if spec.get("languages"):
+        chips.append(f"language: {esc(', '.join(spec['languages']))}")
+    if isinstance(spec.get("min_founder_score"), (int, float)):
+        chips.append(f"score ≥ {spec['min_founder_score']}")
+    if spec.get("trend") == "improving":
+        chips.append("trend improving")
+    inner = " ".join(f"<span class='pill up'>{c}</span>" for c in chips) or \
+        "<span class='note'>no structured constraints — showing top founders</span>"
+    how = ("deterministic keyword fallback (LLM unavailable)" if spec.get("_fallback")
+           else f"parsed by {esc(intelligence.MODEL)} into structured attributes")
+    return (f"<p class='note'>How the system read your query "
+            f"({how}) — matching &amp; ranking below are 100% deterministic:</p>"
+            f"<p>{inner}</p>")
+
+
+@app.get("/search", response_class=HTMLResponse)
+def search_view(q: str | None = None, n: int = 25, as_of: str | None = None):
+    form = (
+        "<h2>Multi-attribute founder search</h2>"
+        "<p class='note'>Ask in plain language — one compound query, not five "
+        "filters. The LLM only parses your words into structured attributes; "
+        "the search itself is deterministic evidence-matching over the ledger.</p>"
+        f"<form method='get' action='/search'>"
+        f"<input name='q' value=\"{esc(q or '')}\" placeholder=\"{esc(EXAMPLE_QUERY)}\" "
+        f"style='width:640px'><button>Search</button></form>"
+        f"<p class='note'>try: <a href='/search?q={esc(EXAMPLE_QUERY)}'>{esc(EXAMPLE_QUERY)}</a></p>"
+    )
+    if not q or not q.strip():
+        return page("Search founders", form)
+
+    conn = db.connect()
+    cutoff = f"{as_of}T23:59:59Z" if as_of else None
+    spec, matches, notes, meta = search_mod.run(conn, q.strip(), n=n, as_of=cutoff)
+
+    disclosure_html = ""
+    if notes:
+        items = "".join(f"<li>{esc(x)}</li>" for x in notes)
+        disclosure_html = (
+            "<div class='banner' style='background:#5c4d1a'>Honest disclosure — "
+            "constraints the current sources can't filter on:<ul style='margin:.4rem 0'>"
+            f"{items}</ul></div>"
+        )
+
+    if not matches:
+        body = (form + _spec_chips(spec) + disclosure_html +
+                "<p>No founder in Memory satisfies every constraint. "
+                "Loosen the query, or <a href='/'>browse all founders</a>.</p>")
+        return page("Search founders", body)
+
+    def _attr_pills(m) -> str:
+        if not m.attrs:
+            return "<span class='note'>top founder (no constraints given)</span>"
+        return " ".join(
+            f"<span class='pill {'up' if a.ok else 'down'}' title='{esc(a.detail)}'>"
+            f"{'✓' if a.ok else '✗'} {esc(a.label)}</span>"
+            for a in m.attrs
+        )
+
+    n_constraints = len(matches[0].attrs) if matches else 0
+    rows = "".join(
+        f"<tr><td class='num'>{i}</td>"
+        f"<td><a href='/founder/{m.entity_id}'>{esc(m.name)}</a>"
+        + (" <span class='pill up' title='matches every constraint'>★ all</span>" if m.perfect and m.n_total > 1 else "")
+        + "</td>"
+        f"<td class='num'>{len(m.satisfied)}/{m.n_total}</td>"
+        f"<td class='num'><b>{m.breakdown.total}</b></td>"
+        f"<td><span class='pill {'up' if m.breakdown.trend=='improving' else 'down' if m.breakdown.trend=='declining' else 'flat'}'>{m.breakdown.trend}</span></td>"
+        f"<td>{_attr_pills(m)}</td>"
+        f"<td class='num'>{m.breakdown.n_events}</td></tr>"
+        for i, m in enumerate(matches, 1)
+    )
+    header = ("<tr><th>#</th><th>founder</th><th>match</th><th>score</th><th>trend</th>"
+              "<th>constraints (✓ satisfied · ✗ not — hover for evidence)</th><th>events</th></tr>")
+    n_perfect = sum(1 for m in matches if m.perfect and m.n_total > 1)
+    relax_note = (
+        "<p class='note'>No founder matched the requested sector, so this shows "
+        "the closest matches on the other constraints instead.</p>"
+        if meta.get("relaxed") else ""
+    )
+    summary = (
+        f"<p><b>{len(matches)}</b> "
+        + ("closest" if meta.get("relaxed") else "topically-relevant")
+        + " founder(s), ranked by constraints satisfied then Founder Score"
+        + (f" — <b>{n_perfect}</b> satisfy all {n_constraints}." if n_constraints > 1 else ".")
+        + "</p>"
+    )
+    body = (form + _spec_chips(spec) + disclosure_html + relax_note + summary +
+            f"<table>{header}{rows}</table>")
+    return page("Search founders", body)
 
 
 @app.get("/thesis", response_class=HTMLResponse)
