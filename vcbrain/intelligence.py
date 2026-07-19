@@ -263,6 +263,35 @@ def decide(breakdown, axes: dict, validation: dict, thesis: dict, fit) -> dict:
     }
 
 
+OUTREACH_SCHEMA = (
+    "You are the outbound activation agent of a VC brain. We SOURCED this "
+    "founder from public signals before they ever approached us — this is the "
+    "Activate step: cold outreach to trigger a real application, NOT a cold "
+    "investment. Draft warm, specific, non-spammy outreach that references the "
+    "exact things they shipped (from the evidence only) and invites them to "
+    "apply for a $100K first check. Rules: never promise or imply the money is "
+    "already theirs — invite a conversation/application; never invent traction, "
+    "revenue, funding, or facts not in the evidence; sound like a human, not a "
+    "template. Tie the 'reason' to the fund thesis where it genuinely fits. "
+    "Respond JSON: {reason: string (<=40 words — why THIS fund should reach out "
+    "to THIS founder, citing their signals), cited_event_ids: [int], "
+    "email: {subject: string, body: string (<=120 words)}, "
+    "linkedin: string (<=60 words), x: string (<=280 chars)}"
+)
+
+
+def draft_outreach(name: str, events: list[dict], thesis: dict) -> dict:
+    """LLM edge: draft evidence-grounded cold outreach for an outbound-sourced
+    founder. The *reason* ties to the thesis; every specific must trace to the
+    evidence digest. Raises on no key / failure — the route degrades."""
+    return _llm(
+        OUTREACH_SCHEMA,
+        json.dumps({"founder": name, "thesis": thesis,
+                    "evidence": evidence_digest(events)}),
+        max_tokens=1400,
+    )
+
+
 def generate_memo(conn, entity_id: int, fresh: bool = False) -> dict:
     existing = [e for e in ledger.events_for(conn, entity_id)
                 if e["event_type"] == "memo"]

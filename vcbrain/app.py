@@ -913,6 +913,11 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         "title='Too little independent evidence to treat as a track record'>cold-start</span>"
         if b.cold_start else ""
     )
+    # Outbound founders (never applied) can be Activated: draft cold outreach.
+    activate_btn = "" if apps else (
+        f"<a class='btn ghost' href='/activate/{entity_id}' style='margin-top:0'>"
+        f"Activate — draft outreach →</a>"
+    )
     profile = (
         f"<div class='card profile reveal'>{_gauge(b.total)}"
         f"<div style='flex:1;min-width:240px'>"
@@ -922,7 +927,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"<p class='note' style='margin:.2rem 0 .8rem'>{_handles_html(row['handles'])}</p>"
         f"{footprint_here}"
         f"<a class='btn' href='/memo/{entity_id}' style='margin-top:0'>Investment memo &amp; "
-        f"$100K decision →</a></div></div>"
+        f"$100K decision →</a> {activate_btn}</div></div>"
     )
     body = (
         f"<p><a class='btn ghost' href='/?view=founders' style='margin-top:0'>← All founders</a></p>"
@@ -1064,6 +1069,124 @@ async def apply_submit(request: Request):
          "founder_name": name},
     )
     return RedirectResponse(f"/founder/{eid}?applied=1", status_code=303)
+
+
+# Outbound Activation — draft evidence-grounded outreach, cached per entity so a
+# re-view spends no extra tokens. Redraft with ?fresh=1.
+_OUTREACH_CACHE: dict = {}
+
+
+def _outreach_signal_rows(events: list[dict], cited: list) -> str:
+    """Deterministic 'why we reached out' — the actual cited signals, not the
+    LLM's prose, so the reader sees the evidence the outreach rests on."""
+    cited_set = {int(i) for i in cited if str(i).isdigit()}
+    picked = [e for e in events if e["id"] in cited_set]
+    if not picked:
+        picked = [e for e in events if e["source"] != "system"][:5]
+    rows = ""
+    for e in picked[:6]:
+        p = e["payload"]
+        what = (p.get("title") or p.get("repo") or p.get("project")
+                or p.get("one_liner") or e["event_type"])
+        pts = p.get("stars") or p.get("points") or ""
+        rows += (
+            f"<tr><td class='num'>#{e['id']}</td>"
+            f"<td><span class='chip'>{esc(e['source'])}/{esc(e['event_type'])}</span></td>"
+            f"<td>{esc(str(what))}</td><td class='num'>{esc(str(pts))}</td></tr>"
+        )
+    return rows
+
+
+@app.get("/activate/{entity_id}", response_class=HTMLResponse)
+def activate_view(entity_id: int, fresh: int = 0):
+    conn = db.connect()
+    row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+    if row is None:
+        return page("Not found", "<p>No such entity.</p>")
+    name = row["canonical_name"]
+    events = ledger.events_for(conn, entity_id)
+    applied = any(e["event_type"] == "application" for e in events)
+
+    if fresh:
+        _OUTREACH_CACHE.pop(entity_id, None)
+    o = _OUTREACH_CACHE.get(entity_id)
+    if o is None:
+        try:
+            o = intelligence.draft_outreach(name, events, thesis_mod.load_thesis())
+        except Exception:
+            back = f"<a class='btn ghost' href='/founder/{entity_id}' style='margin-top:0'>← back</a>"
+            return page(
+                "Outreach unavailable",
+                f"<p>{back}</p><div class='card reveal'><p class='note'>Outreach drafting "
+                f"needs the LLM (OPENAI_API_KEY) and it's unavailable right now. Everything "
+                f"else on this founder still works.</p></div>",
+            )
+        _OUTREACH_CACHE[entity_id] = o
+
+    email = o.get("email", {}) or {}
+    signal_rows = _outreach_signal_rows(events, o.get("cited_event_ids", []))
+    channels = (
+        f"<div class='card reveal' style='margin:.8rem 0'>"
+        f"<p class='eyebrow' style='margin:0'>Email</p>"
+        f"<p style='margin:.35rem 0'><b>Subject:</b> {esc(email.get('subject', ''))}</p>"
+        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(email.get('body', ''))}</p></div>"
+        f"<div class='card reveal' style='margin:.8rem 0'>"
+        f"<p class='eyebrow' style='margin:0'>LinkedIn</p>"
+        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(o.get('linkedin', ''))}</p></div>"
+        f"<div class='card reveal' style='margin:.8rem 0'>"
+        f"<p class='eyebrow' style='margin:0'>X / Twitter DM</p>"
+        f"<p class='note' style='white-space:pre-wrap;margin:.2rem 0'>{esc(o.get('x', ''))}</p></div>"
+    )
+    converge = "" if applied else (
+        f"<form method='post' action='/activate/{entity_id}' style='margin-top:1rem'>"
+        f"<button class='btn'>Simulate: founder replies &amp; applies →</button>"
+        f"<span class='note' style='margin-left:.5rem'>records an application so this "
+        f"outbound founder converges into the same screening funnel as inbound</span></form>"
+    )
+    applied_note = (
+        "<div class='banner go reveal'>✓ Already converged — this founder is in the "
+        "screening funnel.</div>" if applied else ""
+    )
+    body = (
+        f"<p><a class='btn ghost' href='/founder/{entity_id}' style='margin-top:0'>← Back to founder</a> "
+        f"<a class='btn ghost' href='/activate/{entity_id}?fresh=1' style='margin-top:0'>↻ Redraft</a></p>"
+        f"<div class='hero reveal' style='padding-bottom:0'>"
+        f"<p class='eyebrow'>Outbound · Activate</p>"
+        f"<h1>Reach out to <span class='grad'>{esc(name)}</span></h1>"
+        f"<p class='sub'>We sourced this founder from public signals before they applied. "
+        f"Activation is cold outreach to trigger a real application — not a cold investment.</p></div>"
+        f"{applied_note}"
+        f"<div class='banner reveal'><b>Why reach out:</b> {esc(o.get('reason', ''))}</div>"
+        f"<h3 class='reveal'>Signals that surfaced them{_info('The evidence the outreach is grounded in — cited, not invented.')}</h3>"
+        f"<div class='tablewrap reveal'><table>"
+        f"<tr><th>id</th><th>signal</th><th>what</th><th>pts</th></tr>{signal_rows}</table></div>"
+        f"<h3 class='reveal'>Draft outreach</h3>"
+        f"<p class='note reveal' style='max-width:44rem'>Drafted by the LLM, grounded only in "
+        f"the signals above — no invented traction or facts. Cold outreach invites an "
+        f"application; it never promises the check.</p>"
+        f"{channels}{converge}"
+    )
+    return page(f"Activate — {name}", body)
+
+
+@app.post("/activate/{entity_id}")
+async def activate_apply(entity_id: int):
+    """Converge: an activated outbound founder enters the SAME inbound funnel."""
+    conn = db.connect()
+    row = conn.execute(
+        "SELECT canonical_name FROM entities WHERE id=?", (entity_id,)
+    ).fetchone()
+    if row is None:
+        return RedirectResponse("/", status_code=303)
+    now = ledger.utcnow_iso()
+    ledger.record(
+        conn, entity_id, "inbound", "application", now,
+        f"inbound:activated:{entity_id}",   # stable key => double-click is idempotent
+        {"company": row["canonical_name"], "founder_name": row["canonical_name"],
+         "one_liner": "Applied after outbound activation outreach",
+         "activated_via": "outbound"},
+    )
+    return RedirectResponse(f"/founder/{entity_id}?applied=1", status_code=303)
 
 
 @app.get("/backtest", response_class=HTMLResponse)
