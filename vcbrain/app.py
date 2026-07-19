@@ -301,8 +301,10 @@ FAVICON = ("%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
            "%3Cpath d='M8 11 15.5 6.4M8.2 13 15.4 17M17.2 8 17.8 15' stroke='%2339d0ff' "
            "stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E")
 
+# Thesis lives off-nav: the engine (/thesis) still drives every ranking and is
+# reached from the dashboard's "edit thesis" link — it's just not a top-level tab.
 NAV_ITEMS = [("/", "Founders", "founders"), ("/search", "Search", "search"),
-             ("/inbound", "Inbound", "inbound"), ("/thesis", "Thesis", "thesis"),
+             ("/inbound", "Inbound", "inbound"),
              ("/backtest", "Backtest", "backtest")]
 
 
