@@ -246,8 +246,11 @@ li.claim{margin:.7rem 0;padding:.65rem .85rem;border:1px solid var(--border);bor
 tr.hot td{background:rgba(109,124,255,.06)}
 tr.hot td:first-child{box-shadow:inset 3px 0 0 var(--indigo)}
 .rankbadge{display:inline-block;min-width:20px;text-align:center;font-weight:750;color:var(--cyan)}
-th.lenscol,td.lenscol{background:rgba(57,208,255,.07)}
-td.lenscol b{color:var(--cyan);font-size:1.05rem}
+table.ranked th,table.ranked td{border-right:1px solid rgba(28,42,68,.6)}
+table.ranked th:last-child,table.ranked td:last-child{border-right:0}
+th.lenscol,td.lenscol{background:rgba(57,208,255,.11);
+  border-left:1px solid rgba(57,208,255,.3);border-right:1px solid rgba(57,208,255,.3)}
+td.lenscol b{color:var(--cyan);font-size:1.08rem}
 .spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(109,124,255,.22);
   border-top-color:var(--cyan);animation:spin .8s linear infinite;margin:0 auto}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -501,7 +504,7 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
         f"<span>live sources</span><small>{esc(', '.join(st['events_by_source']))}</small></div>"
         "</div>"
     )
-    table_html = f"<div class='tablewrap reveal'><table>{header}{rows}</table></div>"
+    table_html = f"<div class='tablewrap reveal'><table class='ranked'>{header}{rows}</table></div>"
     th_sectors = ", ".join(th.get("sectors", []))
     risk_word = str(th.get("risk_appetite", "medium")).split()[0]
 
@@ -1083,9 +1086,15 @@ def _trust_summary_html(summary: dict) -> str:
     blocked = summary.get("fund_gate_blocked")
     gate = ("<span class='gate-blocked'>⛔ funding gate BLOCKED</span>"
             if blocked else "<span class='gate-ok'>✓ no contradictions</span>")
+    if avg is None:
+        avg_cell = "<b>—</b>"
+    else:
+        cat = "High" if avg >= 0.7 else "Medium" if avg >= 0.4 else "Low"
+        avg_cell = (f"<b>{cat}</b><span class='note' style='font-size:.72rem'>"
+                    f"avg {avg:.2f}</span>")
     return (
         "<div class='card' style='margin:1rem 0'><div class='trustbar'>"
-        f"<div class='cell'>avg trust<b>{avg if avg is not None else '—'}</b></div>"
+        f"<div class='cell'>overall trust{avg_cell}</div>"
         f"<div class='cell'>high-trust claims<b>{pct if pct is not None else '—'}%</b></div>"
         f"<div class='cell'>contradicted<b>{summary.get('contradicted', 0)}</b></div>"
         f"<div class='cell'>honest gaps<b>{summary.get('gaps', 0)}</b></div>"
