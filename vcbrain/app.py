@@ -220,6 +220,7 @@ details.bd code{background:rgba(6,9,19,.55);border:1px solid var(--border);
 .trustbar .cell{font-size:.76rem;color:var(--faint);line-height:1.3}
 .trustbar .cell b{display:block;font-size:1.35rem;color:var(--text);font-variant-numeric:tabular-nums}
 .gate-blocked{color:var(--red);font-weight:700}.gate-ok{color:var(--green);font-weight:700}
+.trust .tnum{opacity:.6;font-weight:500;margin-left:.4rem;font-size:.72rem}
 /* ─── info tooltips, highlights, spinner ──────────── */
 .info{position:relative;display:inline-block;width:16px;height:16px;line-height:15px;text-align:center;
   border-radius:50%;font-size:10px;font-style:normal;font-weight:700;background:rgba(109,124,255,.2);
@@ -519,27 +520,71 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
     )
 
     if view == "thesis":
-        # PANEL 1 (maximised) — editable thesis; PANEL 2 (minimised) — teaser.
+        # PANEL 1 (maximised) — full editable thesis; PANEL 2 (minimised) —
+        # inbound applications + a ready-to-rank teaser.
+        disq = ", ".join(th.get("disqualifiers", []))
         panel1 = (
             "<div class='card reveal'><p class='eyebrow'>Step 1 · Your fund thesis</p>"
             "<h2 style='margin:.2rem 0'>What kind of founder are you looking for?</h2>"
-            "<p class='note' style='max-width:44rem'>Set your sectors and risk appetite — "
-            "every founder in the ledger is then ranked through this lens.</p>"
+            "<p class='note' style='max-width:46rem'>Every founder we've already sourced is "
+            "ranked through this lens. Edit anything, then re-rank.</p>"
             "<form method='post' action='/thesis' onsubmit='return showFinding()'>"
             "<input type='hidden' name='next' value='/?view=founders'>"
-            f"<label>Fund name</label><input name='fund_name' value=\"{esc(th['fund_name'])}\">"
+            f"<label>Fund name</label>"
+            f"<input name='fund_name' value=\"{esc(th['fund_name'])}\" style='width:100%;max-width:640px'>"
             f"<label>Sectors — comma separated {_info('Keywords matched against what each founder has built. 1 match = 50% fit, 2+ = 100%.')}</label>"
             f"<input name='sectors' value=\"{esc(th_sectors)}\" style='width:100%;max-width:640px'>"
-            f"<label>Risk appetite — high / medium / low {_info('high = back exceptional people even off-thesis; low = stricter bars.')}</label>"
-            f"<input name='risk_appetite' value=\"{esc(th.get('risk_appetite', ''))}\">"
+            f"<label>Disqualifiers — comma separated, hard gate {_info('Any founder whose work matches these is excluded outright (e.g. crypto/token, consultancy).')}</label>"
+            f"<input name='disqualifiers' value=\"{esc(disq)}\" style='width:100%;max-width:640px'>"
+            "<div class='formgrid'>"
+            f"<div><label>Risk appetite — high / medium / low {_info('high = back exceptional people even off-thesis; low = stricter bars.')}</label>"
+            f"<input name='risk_appetite' value=\"{esc(th.get('risk_appetite', ''))}\"></div>"
+            f"<div><label>Check size (USD)</label>"
+            f"<input name='check_size_usd' value=\"{esc(th.get('check_size_usd', ''))}\"></div>"
+            f"<div><label>Stage</label>"
+            f"<input name='stage' value=\"{esc(th.get('stage', ''))}\"></div>"
+            f"<div><label>Geography {_info('Recorded but not filtered yet — current sources carry no reliable location signal.')}</label>"
+            f"<input name='geography' value=\"{esc(th.get('geography', ''))}\"></div>"
+            f"<div><label>Ownership target</label>"
+            f"<input name='ownership_target' value=\"{esc(th.get('ownership_target', ''))}\"></div>"
+            "</div>"
             "<button class='btn'>🔍 Find founders →</button></form></div>"
         )
-        panel2 = (
-            "<div class='card reveal' style='text-align:center;padding:1.6rem'>"
-            f"<p class='note' style='margin:0'>▾ {kinds.get('person', 0)} founders indexed and "
-            "ready — set your thesis above and hit <b>Find founders</b> to rank them.</p></div>"
+        # inbound applications (with matched areas) — shown beside/under the thesis
+        apps = conn.execute(
+            "SELECT * FROM events WHERE event_type='application' ORDER BY event_ts DESC"
+        ).fetchall()
+        seen: dict = {}
+        for a in apps:
+            seen.setdefault(resolve(conn, a["entity_id"]), a)
+        in_cards = ""
+        for aeid, a in seen.items():
+            p = json.loads(a["payload"])
+            af = thesis_mod.fit(ledger.events_for(conn, aeid), th)
+            anm = conn.execute("SELECT canonical_name FROM entities WHERE id=?",
+                               (aeid,)).fetchone()["canonical_name"]
+            chips = "".join(f"<span class='chip'>{esc(k)}</span>" for k in af.matched[:4]) \
+                or "<span class='pill flat'>off-thesis</span>"
+            in_cards += (
+                "<div style='padding:.55rem .75rem;border:1px solid var(--border);"
+                "border-radius:10px;margin:.5rem 0'>"
+                f"<b>{esc(p.get('company', ''))}</b> <span class='note'>· {esc(anm)}</span> {chips}"
+                + (f"<br><span class='note'>{esc(p.get('one_liner', ''))}</span>"
+                   if p.get('one_liner') else "")
+                + f" · <a href='/founder/{aeid}?applied=1'>review →</a></div>"
+            )
+        inbound_panel = (
+            "<div class='card reveal'><p class='eyebrow'>Inbound applications</p>"
+            f"<h3 style='margin:.2rem 0'>{len(seen)} founder application"
+            f"{'s' if len(seen) != 1 else ''} waiting</h3>"
+            "<p class='note' style='max-width:46rem'>These founders applied to you. Before "
+            "you decide, rank them against the whole field you've been quietly tracking.</p>"
+            + (in_cards or "<p class='note'>No applications yet — they'll appear here, "
+               "already scored.</p>")
+            + f"<p class='note' style='margin-top:.6rem'>▾ {kinds.get('person', 0)} founders "
+              "indexed and ready — hit <b>Find founders</b> above to rank the field.</p></div>"
         )
-        body = hero + panel1 + panel2 + finding_overlay
+        body = hero + panel1 + inbound_panel + finding_overlay
     else:
         # PANEL 1 (minimised) — thesis summary; PANEL 2 (maximised) — the ranking.
         panel1 = (
@@ -983,15 +1028,21 @@ def backtest_view():
 
 
 def _trust_badge(v: dict) -> str:
-    """Colour-coded trust score. Gap claims are honest (grey), not red."""
+    """Trust shown as a Low / Medium / High category (the number is secondary)."""
     if not v:
         return "<span class='trust t-gap'>unchecked</span>"
     if v.get("verdict") == "gap" or v.get("trust") is None:
         return "<span class='trust t-gap'>✔ honest gap</span>"
     t = v["trust"]
-    cls = "t-hi" if t >= 0.7 else "t-mid" if t >= 0.4 else "t-lo"
-    warn = " ⚠ contradicted" if v.get("verdict") == "contradicted" else ""
-    return f"<span class='trust {cls}'>trust {t:.2f}{warn}</span>"
+    if v.get("verdict") == "contradicted":
+        cls, label = "t-lo", "⚠ Contradicted"
+    elif t >= 0.7:
+        cls, label = "t-hi", "High trust"
+    elif t >= 0.4:
+        cls, label = "t-mid", "Medium trust"
+    else:
+        cls, label = "t-lo", "Low trust"
+    return f"<span class='trust {cls}'>{label}<span class='tnum'>{t:.2f}</span></span>"
 
 
 def _trust_reason(v: dict) -> str:
@@ -1170,12 +1221,14 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"LLM writes rationale, never the decision</span>{fit_line}</div>"
     )
     body = (
+        f"<div style='display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem'>"
+        f"<a class='btn ghost' href='/founder/{entity_id}' style='margin-top:0'>← Back to founder</a>"
+        f"<a class='btn ghost' href='/memo/{entity_id}?fresh=1' style='margin-top:0'>↻ Regenerate memo</a></div>"
         f"<div class='hero reveal' style='padding-bottom:0'>"
         f"<p class='eyebrow'>Evidence-locked memo</p>"
         f"<h1>Investment memo — <span class='grad'>{esc(r['founder'])}</span></h1>"
         f"<p class='note'>model {esc(r['model'])} · generated {esc(r['generated_at'])} · "
         f"thesis: {esc(r['thesis']['fund_name'])} · "
-        f"<a href='/memo/{entity_id}?fresh=1'>regenerate</a> · "
         f"<a href='/founder/{entity_id}'>evidence timeline</a></p></div>"
         f"<p class='eyebrow reveal' style='margin-bottom:.4rem'>The $100K decision</p>"
         f"{decision_html}"
