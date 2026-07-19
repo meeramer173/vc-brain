@@ -7,4 +7,3 @@ __pycache__/
 *.db-shm
 .env
 .DS_Store
-backtest_report*.json
