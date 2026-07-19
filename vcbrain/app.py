@@ -107,7 +107,7 @@ a:hover{text-decoration:underline}
 
 /* ─── tables ──────────────────────────────────────── */
 .tablewrap{background:linear-gradient(165deg,var(--card2),var(--card));border:1px solid var(--border);
-  border-radius:16px;overflow-x:auto;margin:1rem 0}
+  border-radius:16px;overflow:visible;margin:1rem 0}
 table{border-collapse:collapse;width:100%;font-size:.9rem}
 th,td{padding:.62rem .85rem;border-bottom:1px solid rgba(28,42,68,.65);text-align:left;vertical-align:middle}
 th{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
@@ -221,10 +221,27 @@ details.bd code{background:rgba(6,9,19,.55);border:1px solid var(--border);
 .trustbar .cell b{display:block;font-size:1.35rem;color:var(--text);font-variant-numeric:tabular-nums}
 .gate-blocked{color:var(--red);font-weight:700}.gate-ok{color:var(--green);font-weight:700}
 /* ─── info tooltips, highlights, spinner ──────────── */
-.info{display:inline-block;width:15px;height:15px;line-height:15px;text-align:center;border-radius:50%;
-  font-size:10px;font-style:normal;font-weight:700;background:rgba(142,163,196,.18);color:var(--muted);
-  cursor:help;margin-left:.3rem;vertical-align:middle;text-transform:none;letter-spacing:0}
-.info:hover{background:rgba(109,124,255,.35);color:#fff}
+.info{position:relative;display:inline-block;width:16px;height:16px;line-height:15px;text-align:center;
+  border-radius:50%;font-size:10px;font-style:normal;font-weight:700;background:rgba(109,124,255,.2);
+  color:#b9c6ff;cursor:pointer;margin-left:.35rem;vertical-align:middle;text-transform:none;letter-spacing:0;
+  border:1px solid rgba(109,124,255,.4)}
+.info:hover,.info:focus{background:var(--indigo);color:#fff;outline:none}
+.info::after{content:attr(data-tip);position:absolute;left:50%;top:150%;transform:translateX(-50%);
+  min-width:180px;max-width:250px;background:#0b1220;border:1px solid var(--border2);color:var(--text);
+  padding:.55rem .7rem;border-radius:9px;font-size:.76rem;font-weight:400;line-height:1.45;text-align:left;
+  white-space:normal;opacity:0;visibility:hidden;transition:opacity .14s;z-index:80;pointer-events:none;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.info:hover::after,.info:focus::after{opacity:1;visibility:visible}
+/* claim cards */
+li.claim{margin:.7rem 0;padding:.65rem .85rem;border:1px solid var(--border);border-radius:11px;
+  background:rgba(6,9,19,.32);list-style:none}
+.claim .ctext{font-size:.94rem;line-height:1.45;margin-bottom:.45rem}
+.claim .cmeta{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.claim .cwhy{margin-top:.4rem;font-size:.8rem;color:var(--muted);line-height:1.4}
+.claim .cwhy::before{content:'↳ ';color:var(--faint)}
+.panel-slim{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+#finding{display:none;position:fixed;inset:0;z-index:200;background:rgba(6,9,19,.85);
+  backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);align-items:center;justify-content:center}
 tr.hot td{background:rgba(109,124,255,.06)}
 tr.hot td:first-child{box-shadow:inset 3px 0 0 var(--indigo)}
 .rankbadge{display:inline-block;min-width:20px;text-align:center;font-weight:750;color:var(--cyan)}
@@ -344,8 +361,8 @@ def _score_cell(total: float) -> str:
 
 
 def _info(text: str) -> str:
-    """Small ⓘ icon with a plain-language hover explanation of a score/column."""
-    return f"<span class='info' title='{esc(text)}'>i</span>"
+    """Small ⓘ icon with a styled, focusable hover popover explaining a score."""
+    return f"<span class='info' tabindex='0' data-tip='{esc(text)}'>i</span>"
 
 
 def _inbound_ids(conn) -> set:
@@ -391,7 +408,8 @@ def _fit_cell(f) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
+def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
+              view: str = "thesis"):
     conn = db.connect()
     st = ledger.stats(conn)
     cutoff = f"{as_of}T23:59:59Z" if as_of else None
@@ -482,11 +500,59 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
         f"<span>live sources</span><small>{esc(', '.join(st['events_by_source']))}</small></div>"
         "</div>"
     )
-    body = (
-        hero
-        + f"<div class='controls reveal'>{lens_line}{time_travel}</div>"
-        + f"<div class='tablewrap reveal'><table>{header}{rows}</table></div>"
+    table_html = f"<div class='tablewrap reveal'><table>{header}{rows}</table></div>"
+    th_sectors = ", ".join(th.get("sectors", []))
+    risk_word = str(th.get("risk_appetite", "medium")).split()[0]
+
+    # Panel 2 always ranks live; raw view keeps its own simple layout.
+    if lens == "raw":
+        body = (hero + f"<div class='controls reveal'>{lens_line}{time_travel}</div>"
+                + table_html)
+        return page("The VC Brain — ranked founders", body, active="founders")
+
+    finding_overlay = (
+        "<div id='finding'><div style='text-align:center'><div class='spinner'></div>"
+        "<p style='margin-top:1rem;color:var(--text)'>Ranking every founder through your "
+        "thesis…</p></div></div>"
+        "<script>function showFinding(){document.getElementById('finding')"
+        ".style.display='flex';return true;}</script>"
     )
+
+    if view == "thesis":
+        # PANEL 1 (maximised) — editable thesis; PANEL 2 (minimised) — teaser.
+        panel1 = (
+            "<div class='card reveal'><p class='eyebrow'>Step 1 · Your fund thesis</p>"
+            "<h2 style='margin:.2rem 0'>What kind of founder are you looking for?</h2>"
+            "<p class='note' style='max-width:44rem'>Set your sectors and risk appetite — "
+            "every founder in the ledger is then ranked through this lens.</p>"
+            "<form method='post' action='/thesis' onsubmit='return showFinding()'>"
+            "<input type='hidden' name='next' value='/?view=founders'>"
+            f"<label>Fund name</label><input name='fund_name' value=\"{esc(th['fund_name'])}\">"
+            f"<label>Sectors — comma separated {_info('Keywords matched against what each founder has built. 1 match = 50% fit, 2+ = 100%.')}</label>"
+            f"<input name='sectors' value=\"{esc(th_sectors)}\" style='width:100%;max-width:640px'>"
+            f"<label>Risk appetite — high / medium / low {_info('high = back exceptional people even off-thesis; low = stricter bars.')}</label>"
+            f"<input name='risk_appetite' value=\"{esc(th.get('risk_appetite', ''))}\">"
+            "<button class='btn'>🔍 Find founders →</button></form></div>"
+        )
+        panel2 = (
+            "<div class='card reveal' style='text-align:center;padding:1.6rem'>"
+            f"<p class='note' style='margin:0'>▾ {kinds.get('person', 0)} founders indexed and "
+            "ready — set your thesis above and hit <b>Find founders</b> to rank them.</p></div>"
+        )
+        body = hero + panel1 + panel2 + finding_overlay
+    else:
+        # PANEL 1 (minimised) — thesis summary; PANEL 2 (maximised) — the ranking.
+        panel1 = (
+            "<div class='card reveal panel-slim'>"
+            f"<div><b>🔍 {esc(th['fund_name'])}</b> <span class='note'>· sectors: "
+            f"{esc(th_sectors) or 'any'} · risk: {esc(risk_word)}</span></div>"
+            "<div style='display:flex;gap:.5rem;flex-wrap:wrap'>"
+            "<a class='btn ghost' href='/?view=thesis' style='margin:0'>◂ Edit thesis</a>"
+            "<a class='btn ghost' href='/?lens=raw' style='margin:0'>view raw scores</a></div></div>"
+        )
+        body = (hero + panel1
+                + f"<div class='controls reveal'>{time_travel}</div>" + table_html
+                + finding_overlay)
     return page("The VC Brain — ranked founders", body, active="founders")
 
 
@@ -655,7 +721,9 @@ async def thesis_save(request: Request):
     except ValueError:
         pass
     thesis_mod.save_thesis(th)
-    return RedirectResponse("/thesis?saved=1", status_code=303)
+    nxt = (form.get("next") or "").strip()
+    dest = nxt if nxt.startswith("/") else "/thesis?saved=1"
+    return RedirectResponse(dest, status_code=303)
 
 
 def _gauge(total: float) -> str:
@@ -734,7 +802,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"$100K decision →</a></div></div>"
     )
     body = (
-        f"<p><a class='btn ghost' href='/' style='margin-top:0'>← All founders</a></p>"
+        f"<p><a class='btn ghost' href='/?view=founders' style='margin-top:0'>← All founders</a></p>"
         f"{banner}{profile}"
         f"<h3 class='reveal'>How the Founder Score ({b.total}) was calculated{_info('Deterministic: same events in, same score out. No AI.')}</h3>"
         f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 tally of "
@@ -926,19 +994,34 @@ def _trust_badge(v: dict) -> str:
     return f"<span class='trust {cls}'>trust {t:.2f}{warn}</span>"
 
 
-def _breakdown_html(v: dict) -> str:
-    """The deterministic component math behind the number — inspectable per claim."""
+def _trust_reason(v: dict) -> str:
+    """Plain-language explanation of *why* a claim scored the trust it did —
+    what pushed it up or down. Replaces the raw component formula."""
+    if not v:
+        return ""
+    if v.get("verdict") == "gap" or v.get("trust") is None:
+        return "Honestly flagged as missing — not guessed, not counted against the founder."
     bd = v.get("breakdown") or {}
     if not bd:
-        return ""
-    formula = (
-        f"citation {bd['citation_validity']} × grounding {bd['fact_grounding']} "
-        f"× source {bd['source_reliability']} × corrob {bd['corroboration']} "
-        f"× verdict {bd['verdict_multiplier']}  →  cap {bd['cap']}"
-    )
-    note = f" &nbsp;·&nbsp; <i>{esc(v['note'])}</i>" if v.get("note") else ""
-    return (f"<details class='bd'><summary>trust breakdown</summary>"
-            f"<code>{esc(formula)}</code>{note}</details>")
+        return esc(v.get("note", ""))
+    factors = []
+    if bd.get("fact_grounding") == 0:
+        factors.append("a number in this claim isn’t backed by the cited evidence")
+    if bd.get("citation_validity", 1) < 1:
+        factors.append("some cited evidence couldn’t be found")
+    if v.get("claim_type") == "inference" and bd.get("cap") == 0.5:
+        factors.append("it’s an interpretation, not a hard fact (capped at 0.50)")
+    sr = bd.get("source_reliability", 1)
+    if sr <= 0.45:
+        factors.append("it rests on a self-reported source")
+    elif sr >= 0.85 and bd.get("fact_grounding") == 1:
+        factors.append("it’s backed by a hard, verifiable source")
+    if bd.get("corroboration", 1) > 1:
+        factors.append("it’s corroborated by more than one source")
+    head = {"contradicted": "Contradicted", "weak": "Weak evidence",
+            "supported": "Verified"}.get(v.get("verdict"), "")
+    tail = "; ".join(factors) if factors else esc(v.get("note", ""))
+    return f"<b>{head}.</b> {tail}".strip() if head else tail
 
 
 def _trust_summary_html(summary: dict) -> str:
@@ -968,15 +1051,20 @@ def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int,
         cid = f"{section}:{c.get('id', idx)}"
         v = verdicts.get(cid, {})
         ctype = v.get("claim_type")
-        ctype_html = (f" <span class='ctype'>{esc(ctype)}</span>"
+        ctype_html = (f"<span class='ctype'>{esc(ctype)}</span>"
                       if ctype and ctype != "gap" else "")
         # Evidence anchors live on the founder timeline, not this page — link there.
         ev = " ".join(f"<a href='/founder/{entity_id}#ev{i}'>#{i}</a>"
                       for i in c.get("evidence_ids", []))
-        gap = " <b>[GAP — flagged, not guessed]</b>" if c.get("gap") else ""
+        gap = " <b>[missing — flagged, not guessed]</b>" if c.get("gap") else ""
+        why = _trust_reason(v)
+        why_html = f"<div class='cwhy'>{why}</div>" if why else ""
         out.append(
-            f"<li class='claim'>{_trust_badge(v)}{ctype_html} {esc(c.get('text'))}{gap} "
-            f"<span class='note'>{ev}</span>{_breakdown_html(v)}</li>"
+            f"<li class='claim'>"
+            f"<div class='ctext'>{esc(c.get('text'))}{gap}</div>"
+            f"<div class='cmeta'>{_trust_badge(v)} {ctype_html} "
+            f"<span class='note'>evidence {ev if ev else '—'}</span></div>"
+            f"{why_html}</li>"
         )
         idx += 1
     return "".join(out), idx
@@ -1107,7 +1195,7 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"verdict; the score = citation validity × fact-grounding × source "
         f"reliability × corroboration × verdict. Numbers in a claim are checked "
         f"against the cited event's payload, so a fabricated figure is caught in "
-        f"code, not by the model. Expand any claim's breakdown to see the math.</p>"
+        f"code, not by the model. Each claim shows in plain words why it scored what it did.</p>"
     )
     return page(f"Memo — {r['founder']}", body)
 
