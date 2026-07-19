@@ -17,7 +17,7 @@ Examples:
 import argparse
 import json
 
-from . import db, ledger, score
+from . import contacts, db, ledger, score
 from .connectors import base
 from .connectors import arxiv as arxiv_conn
 from .connectors import devpost as devpost_conn
@@ -93,6 +93,21 @@ def cmd_ingest(args) -> None:
     print(json.dumps(result, indent=2))
 
 
+def cmd_enrich_contacts(args) -> None:
+    """Attach self-declared contact info (GitHub profile / social_accounts,
+    HN about) to founders already in the ledger. No scraping, no name guessing;
+    abstains when nothing is declared."""
+    conn = db.connect()
+    if args.entity:
+        c = contacts.enrich_entity(conn, args.entity, with_headline=args.headline)
+        print(json.dumps({"entity": args.entity, "contact": c}, indent=2))
+    else:
+        print(json.dumps(
+            contacts.enrich_all(conn, limit=args.limit, with_headline=args.headline),
+            indent=2,
+        ))
+
+
 def cmd_stats(_args) -> None:
     conn = db.connect()
     print(json.dumps(ledger.stats(conn), indent=2))
@@ -162,6 +177,16 @@ def main() -> None:
     pi.add_argument("--min-relevance", type=float, default=0.2)
     pi.add_argument("--domains", default=None)
     pi.set_defaults(func=cmd_ingest)
+
+    pe = sub.add_parser(
+        "enrich-contacts",
+        help="attach self-declared email / LinkedIn from GitHub + HN profiles",
+    )
+    pe.add_argument("--entity", type=int, default=None, help="one entity, else batch")
+    pe.add_argument("--limit", type=int, default=50, help="most-active founders to scan")
+    pe.add_argument("--headline", action="store_true",
+                    help="also fetch the LinkedIn snippet via Tavily (Option A)")
+    pe.set_defaults(func=cmd_enrich_contacts)
 
     ps = sub.add_parser("stats", help="ledger stats")
     ps.set_defaults(func=cmd_stats)
