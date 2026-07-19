@@ -303,7 +303,8 @@ FAVICON = ("%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
 
 # Thesis lives off-nav: the engine (/thesis) still drives every ranking and is
 # reached from the dashboard's "edit thesis" link — it's just not a top-level tab.
-NAV_ITEMS = [("/", "Founders", "founders"), ("/search", "Search", "search"),
+NAV_ITEMS = [("/", "Founders", "founders"), ("/new", "New", "new"),
+             ("/search", "Search", "search"),
              ("/inbound", "Inbound", "inbound"),
              ("/backtest", "Backtest", "backtest")]
 
@@ -683,6 +684,118 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on",
                 + f"<div class='controls reveal'>{time_travel}</div>" + table_html
                 + finding_overlay)
     return page("The VC Brain — ranked founders", body, active="founders")
+
+
+def _recent_founders(conn, days: int | None, limit: int):
+    """Founders most recently *discovered*, newest first.
+
+    A founder's discovery time is the ingest time of their earliest event —
+    when they first entered our ledger, distinct from when their signals
+    happened out in the world. The append-only ledger keeps every founder
+    forever (nothing is deleted); this view is just a recency lens over it so
+    the board shows fresh intake instead of the whole accumulated field.
+    `days` optionally hard-windows it; days<=0 means "no window, most recent".
+    Returns (rows, total_matched) where rows is capped at `limit`.
+    """
+    q = (
+        "SELECT e.id, e.canonical_name,"
+        " MIN(ev.ingested_at) AS first_seen, MAX(ev.ingested_at) AS last_seen,"
+        " COUNT(ev.id) AS n_ev"
+        " FROM entities e JOIN events ev ON ev.entity_id = e.id"
+        " WHERE e.merged_into IS NULL AND e.kind = 'person'"
+        " GROUP BY e.id"
+    )
+    params: list = []
+    if days and days > 0:
+        since = (
+            ledger.parse_ts(ledger.utcnow_iso()) - timedelta(days=days)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        q += " HAVING MIN(ev.ingested_at) >= ?"
+        params.append(since)
+    q += " ORDER BY first_seen DESC, e.id DESC"
+    rows = conn.execute(q, params).fetchall()
+    out = [
+        (r["id"], r["canonical_name"], r["first_seen"], r["last_seen"],
+         r["n_ev"], score.founder_score(conn, r["id"]))
+        for r in rows[:limit]
+    ]
+    return out, len(rows)
+
+
+@app.get("/new", response_class=HTMLResponse)
+def new_view(days: int = 7, n: int = 60):
+    """Fresh intake: founders newly discovered, newest first. The DB keeps the
+    full history — this view deliberately shows only recent finds so the board
+    stays clean, and it's where each weekly refresh lands."""
+    conn = db.connect()
+    recent, total = _recent_founders(conn, days, n)
+    inbound = _inbound_ids(conn)
+    now = ledger.parse_ts(ledger.utcnow_iso())
+
+    def _age_days(ts: str) -> int:
+        return (now - ledger.parse_ts(ts)).days
+
+    def _disc_badges(first_seen: str, last_seen: str) -> str:
+        parts = []
+        if _age_days(first_seen) <= 7:
+            parts.append("<span class='pill up' title='First discovered in the "
+                         "last 7 days'>NEW</span>")
+        if last_seen != first_seen and _age_days(last_seen) <= 7:
+            parts.append("<span class='pill flat' title='Existing founder picked "
+                         "up fresh signals in the last 7 days'>＋ updated</span>")
+        return " ".join(parts)
+
+    rows = "".join(
+        f"<tr>"
+        f"<td class='num'>{i}</td>"
+        f"<td><a href='/founder/{eid}'>{esc(name)}</a> {_io_tag(eid in inbound)} "
+        f"{_disc_badges(first_seen, last_seen)}</td>"
+        f"<td class='note'>{esc(first_seen[:10])}</td>"
+        f"<td>{_score_cell(b.total)}</td>"
+        f"<td>{_trend_pill(b.trend)}</td>"
+        f"<td class='note'>{esc(', '.join(b.sources))}</td>"
+        f"<td class='num'>{n_ev}</td></tr>"
+        for i, (eid, name, first_seen, last_seen, n_ev, b) in enumerate(recent, 1)
+    )
+    if not rows:
+        rows = ("<tr><td colspan='7' class='note' style='text-align:center;"
+                "padding:1.4rem'>No founders discovered in this window yet — "
+                "the weekly refresh will land them here.</td></tr>")
+    header = (
+        "<tr><th>#</th><th>founder</th>"
+        f"<th>discovered{_info('When this founder first entered our ledger (ingest time of their earliest signal).')}</th>"
+        f"<th>founder score{_info('0-100. Freshly discovered founders often start thin (breadth only) until shipping signal corroborates — that is honest, not a bug.')}</th>"
+        "<th>trend</th><th>sources</th><th>events</th></tr>"
+    )
+    win = {7: "last 7 days", 30: "last 30 days"}.get(days, "all time")
+    shown = len(recent)
+    cap_note = (f" · showing the {shown} most recent of {total}"
+                if total > shown else f" · {shown} founder{'s' if shown != 1 else ''}")
+    windows = " ".join(
+        (f"<b>{lbl}</b>" if days == d
+         else f"<a href='/new?days={d}'>{lbl}</a>")
+        for d, lbl in ((7, "7 days"), (30, "30 days"), (0, "all"))
+    )
+    intro = (
+        "<div class='hero reveal'>"
+        "<p class='eyebrow'>Fresh intake · recency lens over the append-only ledger</p>"
+        "<h1>What's <span class='grad'>new</span> this week.</h1>"
+        "<p class='sub'>Every founder we've ever discovered stays in the ledger "
+        "with full history — the main board ranks the whole field. This view "
+        "shows only <b>newly discovered</b> founders so the board stays clean, "
+        "and it's where each weekly refresh lands. Newest first.</p></div>"
+    )
+    controls = (
+        "<div class='card reveal'>"
+        f"<b>🆕 Newly discovered · {esc(win)}</b>"
+        f"<span class='note'>{cap_note}</span>"
+        f"<p class='note' style='margin:.4rem 0 0'>Window: {windows} · "
+        "the full field lives under <a href='/'>Founders</a></p></div>"
+    )
+    table_html = (f"<div class='tablewrap reveal'><table class='ranked'>"
+                  f"{header}{rows}</table></div>")
+    body = intro + controls + table_html
+    return page("The VC Brain — newly discovered founders", body, active="new")
 
 
 EXAMPLE_QUERY = ("technical founder, AI infra, enterprise traction, "
@@ -1743,6 +1856,23 @@ def api_founders(n: int = 50, as_of: str | None = None):
          "sources": b.sources, "n_events": b.n_events}
         for eid, name, b in ranked
     ])
+
+
+@app.get("/api/new")
+def api_new(days: int = 7, n: int = 60):
+    """Newly discovered founders (newest first) — the JSON behind /new. Handy
+    for verifying a weekly refresh actually landed new records."""
+    conn = db.connect()
+    recent, total = _recent_founders(conn, days, n)
+    return JSONResponse({
+        "days": days, "total_matched": total, "shown": len(recent),
+        "founders": [
+            {"id": eid, "name": name, "discovered": first_seen,
+             "last_signal": last_seen, "score": b.total,
+             "sources": b.sources, "n_events": n_ev}
+            for eid, name, first_seen, last_seen, n_ev, b in recent
+        ],
+    })
 
 
 @app.get("/api/founder/{entity_id}")

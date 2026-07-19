@@ -1,0 +1,82 @@
+name: weekly-dataset-refresh
+
+# Re-scouts founders once a week and republishes the live demo.
+#   1. ingest fresh signals on top of the committed snapshot (dedup = idempotent)
+#   2. write a clean snapshot back to data/vcbrain-seed.sqlite3
+#   3. commit + trigger a Railway deploy — but ONLY when new data actually landed
+#
+# Required repo secrets:  TAVILY_API_KEY  (LinkedIn discovery)
+#                         RAILWAY_TOKEN   (optional — deploy step self-skips if unset)
+# Optional repo variable: RAILWAY_SERVICE (service name, if the token isn't scoped)
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"   # Mondays 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      run_linkedin:
+        description: "Also run LinkedIn discovery (spends Tavily credits)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write          # push the refreshed seed back to the repo
+
+concurrency:
+  group: weekly-refresh    # never let two refreshes race on the seed
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: uv sync --frozen
+
+      - name: Ingest fresh signals + rebuild snapshot
+        id: refresh
+        env:
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          # free sources every week; LinkedIn on the weekly cron + when asked
+          RUN_LINKEDIN: ${{ (github.event_name == 'schedule' || github.event.inputs.run_linkedin == 'true') && '1' || '0' }}
+        run: uv run python scripts/refresh_seed.py
+
+      - name: Commit refreshed seed
+        if: steps.refresh.outputs.new_events != '0'
+        run: |
+          git config user.name  "vcbrain-refresh-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/vcbrain-seed.sqlite3
+          git commit -m "chore: weekly dataset refresh (+${{ steps.refresh.outputs.new_events }} signals)"
+          git push
+
+      - name: Deploy to Railway
+        if: steps.refresh.outputs.new_events != '0'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN not set — skipping deploy (seed is committed; deploy manually with 'railway up')."
+            exit 0
+          fi
+          npm i -g @railway/cli
+          if [ -n "$RAILWAY_SERVICE" ]; then
+            railway up --ci --service "$RAILWAY_SERVICE" || echo "::warning::railway deploy failed (non-fatal); seed is committed"
+          else
+            railway up --ci || echo "::warning::railway deploy failed (non-fatal); seed is committed"
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Weekly dataset refresh" >> "$GITHUB_STEP_SUMMARY"
+          echo "- new signals: **${{ steps.refresh.outputs.new_events }}**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- total events: ${{ steps.refresh.outputs.total_events }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- founders: ${{ steps.refresh.outputs.founders }}" >> "$GITHUB_STEP_SUMMARY"
