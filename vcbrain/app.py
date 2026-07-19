@@ -19,6 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import contacts as contacts_mod
+from . import curated as curated_mod
 from . import db, intelligence, ledger, score
 from . import search as search_mod
 from . import thesis as thesis_mod
@@ -1516,10 +1517,13 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"<span class='note'>deterministic rule: {esc(d['rule'])} · "
         f"LLM writes rationale, never the decision</span>{fit_line}</div>"
     )
+    offer_btn = (f"<a class='btn' href='/offer/{entity_id}' style='margin-top:0'>💸 Send $100K offer →</a>"
+                 if fund else "")
     body = (
         f"<div style='display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.4rem'>"
         f"<a class='btn ghost' href='/founder/{entity_id}' style='margin-top:0'>← Back to founder</a>"
-        f"<a class='btn ghost' href='/memo/{entity_id}?fresh=1' style='margin-top:0'>↻ Regenerate memo</a></div>"
+        f"<a class='btn ghost' href='/memo/{entity_id}?fresh=1' style='margin-top:0'>↻ Regenerate memo</a>"
+        f"{offer_btn}</div>"
         f"<div class='hero reveal' style='padding-bottom:0'>"
         f"<p class='eyebrow'>Evidence-locked memo</p>"
         f"<h1>Investment memo — <span class='grad'>{esc(r['founder'])}</span></h1>"
@@ -1547,6 +1551,77 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"code, not by the model. Each claim shows in plain words why it scored what it did.</p>"
     )
     return page(f"Memo — {r['founder']}", body)
+
+
+@app.get("/offer/{entity_id}", response_class=HTMLResponse)
+def offer_view(entity_id: int, sent: int = 0):
+    """Post-decision: draft the $100K offer to a real (self-declared) destination,
+    then run a clearly-simulated founder reply → wire the check, inside 24h."""
+    conn = db.connect()
+    row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
+    if row is None:
+        return page("Not found", "<p>No such entity.</p>")
+    name = row["canonical_name"]
+    contact = contacts_mod.latest_contact(conn, entity_id) or {}
+    email = contact.get("email")
+    dest = (f"<b>{esc(email)}</b> <span class='note'>· self-declared, verified</span>"
+            if email else "<span class='note'>no verified contact on file — "
+            "outreach is <b>simulated</b> for this demo</span>")
+    reply = curated_mod.sim_reply(conn, entity_id) or {
+        "decision": "accept", "latency_hours": 8,
+        "message": "Excited to work with you — let's get the paperwork going."}
+    back = (f"<a class='btn ghost' href='/memo/{entity_id}' style='margin-top:0'>← Back to memo</a>")
+
+    letter = (
+        f"Subject: Maschmeyer Group — a $100,000 offer\n\n"
+        f"Hi {name.split()[0] if name else 'there'},\n\n"
+        f"Our evidence-backed analysis flagged your work as a fund decision. We'd like "
+        f"to offer a $100,000 SAFE to back what you're building — no deck rounds, no "
+        f"gatekeeping. Reply to accept and we'll wire within 24 hours.\n\n— The VC Brain, on behalf of Maschmeyer Group"
+    )
+
+    if not sent:
+        body = (
+            f"<p>{back}</p>"
+            f"<div class='hero reveal' style='padding-bottom:0'><p class='eyebrow'>Post-decision · Offer</p>"
+            f"<h1>Send the <span class='grad'>$100K</span> offer</h1>"
+            f"<p class='sub'>Destination: {dest}</p></div>"
+            f"<div class='card reveal'><p class='eyebrow'>Draft offer</p>"
+            f"<p class='note' style='white-space:pre-wrap;margin:.3rem 0'>{esc(letter)}</p></div>"
+            f"<p><a class='btn' href='/offer/{entity_id}?sent=1' style='margin-top:1rem'>"
+            f"Send offer (simulate) →</a></p>"
+            f"<p class='note'>The send + reply below are <b>simulated</b> — the VC Brain never "
+            f"actually emails a founder.</p>"
+        )
+        return page(f"Offer — {name}", body)
+
+    decision = reply.get("decision", "accept")
+    lat = reply.get("latency_hours", 8)
+    sent_at = ledger.parse_ts(ledger.utcnow_iso())
+    replied_at = sent_at + timedelta(hours=lat)
+    outcome = {
+        "accept": ("go", "✅ Founder accepted",
+                   f"✓ $100,000 wired to {esc(name)} — inside the 24-hour window."),
+        "negotiate": ("gold", "🤝 Founder wants to negotiate",
+                      "Logged — routed back to the investor for terms."),
+        "decline": ("no", "🚫 Founder declined",
+                    "Documented as a pass — no capital deployed."),
+    }.get(decision, ("go", "✅ Founder accepted", "✓ $100,000 wired."))
+    cls, head, tail = outcome
+    body = (
+        f"<p>{back}</p>"
+        f"<div class='hero reveal' style='padding-bottom:0'><p class='eyebrow'>Post-decision · Offer</p>"
+        f"<h1>Offer sent to <span class='grad'>{esc(name)}</span></h1></div>"
+        f"<div class='card reveal'><p class='note'>📤 Sent to {dest}</p>"
+        f"<p class='note'>⏱ {sent_at.strftime('%H:%M')} sent · {replied_at.strftime('%H:%M')} replied "
+        f"(+{lat}h) · well within 24h</p></div>"
+        f"<div class='card reveal' style='margin:1rem 0'><p class='eyebrow'>Founder reply "
+        f"<span class='note'>(simulated for demo)</span></p>"
+        f"<p style='white-space:pre-wrap;margin:.3rem 0'>“{esc(reply.get('message', ''))}”</p></div>"
+        f"<div class='banner {cls} reveal'><div style='font-size:1.3rem;font-weight:750'>{head}</div>"
+        f"<div style='margin-top:.35rem'>{tail}</div></div>"
+    )
+    return page(f"Offer sent — {name}", body)
 
 
 @app.get("/api/founders")

@@ -22,7 +22,7 @@ Usage:
 import argparse
 from datetime import datetime, timedelta, timezone
 
-from vcbrain import contacts, db, intelligence, ledger, score, trust
+from vcbrain import contacts, curated, db, intelligence, ledger, score, trust
 from vcbrain import thesis as thesis_mod
 from vcbrain.entities import Resolver
 
@@ -259,6 +259,9 @@ def main() -> None:
     for spec in OUTBOUND_FOUNDERS:
         eid = seed_outbound(conn, spec)
         print(f"  outbound {spec['name']:<16} → #{eid}  (self-declared contact)")
+    # Curated (synthetic) experience / tech-depth / sim-reply for the personas.
+    res = curated.load_curated(conn)
+    print(f"  curated enrichment: {res['added']} events added")
     print(f"done ({args.db})")
 
 

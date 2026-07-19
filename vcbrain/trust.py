@@ -37,6 +37,7 @@ SOURCE_WEIGHTS = {
     "devpost": 0.70,     # hackathon win
     "hn": 0.60,          # community points — soft, gameable
     "producthunt": 0.60,
+    "curated": 0.55,     # synthetic persona data — self-reported, clearly labelled
     "inbound": 0.40,     # self-reported by the founder — weakest
     "application": 0.40,
     "system": 0.30,

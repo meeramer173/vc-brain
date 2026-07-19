@@ -1,0 +1,35 @@
+{
+  "_note": "SYNTHETIC data for FICTIONAL demo personas only — never real founders. Keyed by GitHub handle; the loader maps each record onto the same entity and tags every event source='curated' (Medium trust). Experience/tech events feed the Founder Score; sim_reply drives the offer demo.",
+  "sofia-nimbus": {
+    "experience": [
+      {"type": "startup_exit", "company": "DataPipe", "exit_type": "acquired", "year": 2021},
+      {"type": "role", "title": "Founding Engineer", "company": "Scale AI", "years": "2019-2022"}
+    ],
+    "tech_depth": [
+      {"type": "patent", "title": "Distributed RL scheduling", "year": 2023},
+      {"type": "oss_maintainer", "repo": "nimbus-rl", "contributors": 47}
+    ],
+    "sim_reply": {"decision": "accept", "latency_hours": 6, "message": "Thrilled to take the $100K — sending incorporation docs now."}
+  },
+  "marcuskane": {
+    "experience": [
+      {"type": "role", "title": "Senior Engineer", "company": "Stripe", "years": "2018-2021"}
+    ],
+    "tech_depth": [
+      {"type": "oss_maintainer", "repo": "ledgerloop", "contributors": 12}
+    ],
+    "sim_reply": {"decision": "negotiate", "latency_hours": 12, "message": "Interested — can we talk terms and valuation?"}
+  },
+  "novareeves": {
+    "experience": [
+      {"type": "startup_founded", "company": "DataForge AI", "year": 2024}
+    ],
+    "sim_reply": {"decision": "accept", "latency_hours": 3, "message": "Yes — let's go!"}
+  },
+  "priyanair": {
+    "experience": [
+      {"type": "role", "title": "ML Engineer", "company": "early-career", "years": "2022-2024"}
+    ],
+    "sim_reply": {"decision": "accept", "latency_hours": 20, "message": "Would love to."}
+  }
+}
