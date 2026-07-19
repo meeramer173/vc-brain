@@ -8,6 +8,7 @@ Examples:
     python -m vcbrain.cli ingest arxiv --category cs.AI --max 100
     python -m vcbrain.cli ingest tavily --limit 30            # enrich top founders
     python -m vcbrain.cli ingest tavily --limit 30 --domains linkedin.com,x.com
+    python -m vcbrain.cli ingest linkedin --limit 15         # discover founders from LinkedIn
     python -m vcbrain.cli stats
     python -m vcbrain.cli top --n 15 [--as-of 2026-06-01]
     python -m vcbrain.cli show --entity 42
@@ -22,6 +23,7 @@ from .connectors import arxiv as arxiv_conn
 from .connectors import devpost as devpost_conn
 from .connectors import github as github_conn
 from .connectors import hackernews as hn_conn
+from .connectors import linkedin as linkedin_conn
 from .connectors import tavily as tavily_conn
 from .connectors import ycombinator as yc_conn
 
@@ -49,6 +51,11 @@ def cmd_ingest(args) -> None:
             max_rows=args.max_rows, offset=args.offset
         )
         result = base.ingest(conn, "devpost", signals)
+    elif args.source == "linkedin":
+        # Discovery: pull real founder /in/ profiles from LinkedIn via
+        # Tavily's index (no scraping) and ingest each as a founder entity.
+        signals = linkedin_conn.fetch_founders(limit=args.limit)
+        result = base.ingest(conn, "linkedin", signals)
     elif args.source == "tavily":
         # Enrichment source: pull existing founders (most-active first) and
         # search the web for independent coverage of each. Handles come
@@ -138,7 +145,8 @@ def main() -> None:
 
     pi = sub.add_parser("ingest", help="pull a source into the ledger")
     pi.add_argument(
-        "source", choices=["hn", "yc", "github", "arxiv", "devpost", "tavily"]
+        "source",
+        choices=["hn", "yc", "github", "arxiv", "devpost", "tavily", "linkedin"],
     )
     pi.add_argument("--days", type=int, default=7)
     pi.add_argument("--since-year", type=int, default=2024)
