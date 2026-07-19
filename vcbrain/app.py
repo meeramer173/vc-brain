@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from . import db, intelligence, ledger, score
 from . import search as search_mod
 from . import thesis as thesis_mod
-from .entities import Resolver
+from .entities import Resolver, resolve
 
 app = FastAPI(title="The VC Brain")
 
@@ -278,7 +278,7 @@ FAVICON = ("%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
            "stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E")
 
 NAV_ITEMS = [("/", "Founders", "founders"), ("/search", "Search", "search"),
-             ("/apply", "Apply", "apply"), ("/thesis", "Thesis", "thesis"),
+             ("/inbound", "Inbound", "inbound"), ("/thesis", "Thesis", "thesis"),
              ("/backtest", "Backtest", "backtest")]
 
 
@@ -300,7 +300,8 @@ def page(title: str, body: str, active: str = "") -> HTMLResponse:
         f"<main><div class='wrap'>{body}</div></main>"
         f"<footer><div class='wrap'><span>LLM at the edges only — everything between is "
         f"deterministic, timestamped, replayable.</span>"
-        f"<span>append-only event ledger · <a href='/backtest'>backtested 2.62x lift</a></span>"
+        f"<span>append-only event ledger · <a href='/backtest'>backtested 2.62x lift</a> · "
+        f"<a href='/apply'>founder? apply →</a></span>"
         f"</div></footer>"
         f"<script>{JS}</script></body></html>"
     )
@@ -347,6 +348,24 @@ def _info(text: str) -> str:
     return f"<span class='info' title='{esc(text)}'>i</span>"
 
 
+def _inbound_ids(conn) -> set:
+    """Canonical entity ids that have submitted an application (inbound).
+    Everyone else in the ledger was sourced by us (outbound)."""
+    ids = set()
+    for r in conn.execute(
+        "SELECT DISTINCT entity_id FROM events WHERE event_type='application'"
+    ):
+        ids.add(resolve(conn, r["entity_id"]))
+    return ids
+
+
+def _io_tag(is_inbound: bool) -> str:
+    if is_inbound:
+        return ("<span class='pill up' title='Applied to us (inbound)'>inbound</span>")
+    return ("<span class='pill flat' title='We sourced them; they have not applied "
+            "(outbound)'>outbound</span>")
+
+
 COMP_HELP = {
     "shipping_cadence": "How much they shipped in the last 180 days (6+ ships = full marks).",
     "momentum": "Recent shipping, weighted heavily — a 60-day half-life rewards being active now.",
@@ -377,13 +396,14 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
     st = ledger.stats(conn)
     cutoff = f"{as_of}T23:59:59Z" if as_of else None
     th = thesis_mod.load_thesis()
+    inbound = _inbound_ids(conn)
 
     if lens != "raw":
         ranked = thesis_mod.rank_with_lens(conn, th, n=n, as_of=cutoff)
         rows = "".join(
             f"<tr class='{'hot' if i <= 5 else ''}'>"
             f"<td class='num'>{f'<span class=\"rankbadge\">{i}</span>' if i <= 5 else i}</td>"
-            f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
+            f"<td><a href='/founder/{eid}'>{esc(name)}</a> {_io_tag(eid in inbound)}</td>"
             f"<td class='num lenscol'><b>{blended}</b></td>"
             f"<td>{_score_cell(b.total)}</td>"
             f"<td>{_fit_cell(f)}</td>"
@@ -410,7 +430,7 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
         ranked = score.rank_founders(conn, n=n, as_of=cutoff)
         rows = "".join(
             f"<tr><td class='num'>{i}</td>"
-            f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
+            f"<td><a href='/founder/{eid}'>{esc(name)}</a> {_io_tag(eid in inbound)}</td>"
             f"<td>{_score_cell(b.total)}</td>"
             f"<td>{_trend_pill(b.trend)}</td>"
             f"<td class='note'>{esc(', '.join(b.sources))}</td>"
@@ -731,14 +751,71 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
     return page(row["canonical_name"], body)
 
 
+@app.get("/inbound", response_class=HTMLResponse)
+def inbound_queue():
+    """VC-side, read-only: the applications received, each already scored."""
+    conn = db.connect()
+    apps = conn.execute(
+        "SELECT * FROM events WHERE event_type='application' ORDER BY event_ts DESC"
+    ).fetchall()
+    seen: dict = {}
+    for a in apps:  # one card per founder (most recent application)
+        eid = resolve(conn, a["entity_id"])
+        seen.setdefault(eid, a)
+
+    if not seen:
+        empty = ("<div class='hero reveal'><p class='eyebrow'>Inbound queue</p>"
+                 "<h1>No applications yet.</h1><p class='sub'>When a founder applies via "
+                 "the <a href='/apply'>founder portal</a>, they appear here — already "
+                 "scored against the field.</p></div>")
+        return page("Inbound", empty, active="inbound")
+
+    cards = ""
+    for eid, a in seen.items():
+        p = json.loads(a["payload"])
+        nm = conn.execute("SELECT canonical_name FROM entities WHERE id=?",
+                          (eid,)).fetchone()["canonical_name"]
+        b = score.founder_score(conn, eid)
+        events = ledger.events_for(conn, eid)
+        prior = [e for e in events if e["event_ts"] < a["event_ts"]
+                 and e["source"] not in ("inbound", "system")]
+        n_src = len({e["source"] for e in prior})
+        due = ledger.parse_ts(a["event_ts"]) + timedelta(hours=24)
+        knew = (f"<span class='pill up'>★ we already knew you — {len(prior)} prior "
+                f"signal{'s' if len(prior) != 1 else ''} from {n_src} "
+                f"source{'s' if n_src != 1 else ''}</span>" if prior else
+                "<span class='pill flat'>new to us — no prior footprint</span>")
+        cards += (
+            f"<div class='card reveal' style='margin:.8rem 0'>"
+            f"<div style='display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap'>"
+            f"<div><b style='font-size:1.06rem'>{esc(p.get('company', ''))}</b> "
+            f"<span class='note'>· {esc(nm)}</span> {_io_tag(True)}<br>"
+            f"<span class='note'>{esc(p.get('one_liner', ''))}</span></div>"
+            f"<div class='num' style='font-size:1.6rem;font-weight:750;text-align:right'>"
+            f"{b.total}<div class='note' style='font-size:.72rem'>founder score</div></div></div>"
+            f"<div style='margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap;align-items:center'>"
+            f"{knew}<span class='pill flat'>⏱ decision due {due.strftime('%Y-%m-%d %H:%M')}Z</span>"
+            f"<a class='btn ghost' href='/founder/{eid}?applied=1' style='margin:0'>Review profile →</a>"
+            f"<a class='btn' href='/memo/{eid}' style='margin:0'>Memo &amp; decision →</a></div></div>"
+        )
+    hero = ("<div class='hero reveal'><p class='eyebrow'>Inbound queue</p>"
+            f"<h1>{len(seen)} founder application{'s' if len(seen) != 1 else ''} "
+            f"<span class='grad'>received</span></h1>"
+            "<p class='sub'>Submitted through the founder portal — each already scored "
+            "against the whole field. Where we'd sourced them before they applied, their "
+            "history was already waiting.</p></div>")
+    return page("Inbound", hero + cards, active="inbound")
+
+
 @app.get("/apply", response_class=HTMLResponse)
 def apply_form():
     body = """
     <div class='hero reveal'>
-    <p class='eyebrow'>Inbound</p>
+    <p class='eyebrow'>Founder portal · standalone</p>
     <h1>Apply for a <span class='grad'>$100K</span> check.</h1>
-    <p class='sub'>Minimum bar per the brief: company + name. Handles are
-    optional — if we've seen you before, we already know.</p></div>
+    <p class='sub'>Minimum bar: company + name. Handles are optional — if we've seen
+    you before, we already know. Investors never see this form; your application shows
+    up in their Inbound queue, already scored.</p></div>
     <div class='card reveal' style='max-width:560px;padding:1.4rem 1.5rem'>
     <form method='post' action='/apply'>
       <label>Founder name *</label><input name='name' required>
@@ -751,7 +828,7 @@ def apply_form():
       <label>Website</label><input name='url'>
       <button>Apply for $100K</button>
     </form></div>"""
-    return page("Apply", body, active="apply")
+    return page("Founder portal — apply", body)
 
 
 @app.post("/apply")
