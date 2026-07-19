@@ -1,0 +1,10 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+backtest_report*.json
