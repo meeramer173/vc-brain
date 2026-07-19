@@ -137,12 +137,20 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
         lens_line = ("<p>viewing raw Founder Scores (no fund lens) — "
                      "<a href='/'>back to thesis view</a></p>")
 
-    time_travel = (
-        f"<p class='note'>viewing the world as of {esc(as_of)} — "
-        f"<a href='/'>back to today</a></p>" if as_of else
-        "<p class='note'>time travel: add ?as_of=YYYY-MM-DD to see what the "
-        "system knew on any date</p>"
-    )
+    if as_of:
+        time_travel = (
+            f"<p class='note'>⏳ Viewing the world as of <b>{esc(as_of)}</b> — "
+            f"scores recomputed from only what was known then. "
+            f"<a href='/'>Back to today</a></p>"
+        )
+    else:
+        time_travel = (
+            "<form method='get' style='margin:.5rem 0'>"
+            "<span class='note'>⏳ Time travel — see what the system knew on any date: </span>"
+            "<input type='date' name='as_of' style='width:auto;padding:.25rem'> "
+            "<button style='margin-top:0;padding:.3rem 1rem'>Go</button>"
+            "</form>"
+        )
     body = (
         f"<p>{st['events']} signals · {st['entities']} entities · "
         f"{st['merged_away']} identities merged · sources: "
