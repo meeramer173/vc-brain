@@ -220,6 +220,21 @@ details.bd code{background:rgba(6,9,19,.55);border:1px solid var(--border);
 .trustbar .cell{font-size:.76rem;color:var(--faint);line-height:1.3}
 .trustbar .cell b{display:block;font-size:1.35rem;color:var(--text);font-variant-numeric:tabular-nums}
 .gate-blocked{color:var(--red);font-weight:700}.gate-ok{color:var(--green);font-weight:700}
+/* ─── info tooltips, highlights, spinner ──────────── */
+.info{display:inline-block;width:15px;height:15px;line-height:15px;text-align:center;border-radius:50%;
+  font-size:10px;font-style:normal;font-weight:700;background:rgba(142,163,196,.18);color:var(--muted);
+  cursor:help;margin-left:.3rem;vertical-align:middle;text-transform:none;letter-spacing:0}
+.info:hover{background:rgba(109,124,255,.35);color:#fff}
+tr.hot td{background:rgba(109,124,255,.06)}
+tr.hot td:first-child{box-shadow:inset 3px 0 0 var(--indigo)}
+.rankbadge{display:inline-block;min-width:20px;text-align:center;font-weight:750;color:var(--cyan)}
+th.lenscol,td.lenscol{background:rgba(57,208,255,.07)}
+td.lenscol b{color:var(--cyan);font-size:1.05rem}
+.spinner{width:36px;height:36px;border-radius:50%;border:3px solid rgba(109,124,255,.22);
+  border-top-color:var(--cyan);animation:spin .8s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.genwrap{text-align:center;padding:2.6rem 1rem}
+.genwrap .elapsed{font-variant-numeric:tabular-nums;color:var(--cyan);font-weight:700}
 footer{border-top:1px solid var(--border);padding:1.4rem 0 2.2rem;color:var(--faint);font-size:.82rem}
 footer .wrap{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 """
@@ -327,6 +342,20 @@ def _score_cell(total: float) -> str:
             f"<span class='sbar'><i style='width:{pct}%'></i></span>")
 
 
+def _info(text: str) -> str:
+    """Small ⓘ icon with a plain-language hover explanation of a score/column."""
+    return f"<span class='info' title='{esc(text)}'>i</span>"
+
+
+COMP_HELP = {
+    "shipping_cadence": "How much they shipped in the last 180 days (6+ ships = full marks).",
+    "momentum": "Recent shipping, weighted heavily — a 60-day half-life rewards being active now.",
+    "breadth": "How many different sources independently vouch for them.",
+    "external_validation": "Accumulated stars + points across their work (log-scaled).",
+    "consistency": "How many distinct months they were active in the last year.",
+}
+
+
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
@@ -352,9 +381,10 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
     if lens != "raw":
         ranked = thesis_mod.rank_with_lens(conn, th, n=n, as_of=cutoff)
         rows = "".join(
-            f"<tr><td class='num'>{i}</td>"
+            f"<tr class='{'hot' if i <= 5 else ''}'>"
+            f"<td class='num'>{f'<span class=\"rankbadge\">{i}</span>' if i <= 5 else i}</td>"
             f"<td><a href='/founder/{eid}'>{esc(name)}</a></td>"
-            f"<td class='num'><b>{blended}</b></td>"
+            f"<td class='num lenscol'><b>{blended}</b></td>"
             f"<td>{_score_cell(b.total)}</td>"
             f"<td>{_fit_cell(f)}</td>"
             f"<td>{_trend_pill(b.trend)}</td>"
@@ -362,8 +392,14 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
             f"<td class='num'>{b.n_events}</td></tr>"
             for i, (eid, name, b, f, blended) in enumerate(ranked, 1)
         )
-        header = ("<tr><th>#</th><th>founder</th><th>lens score</th><th>raw score</th>"
-                  "<th>thesis fit</th><th>trend</th><th>sources</th><th>events</th></tr>")
+        header = (
+            "<tr><th>#</th><th>founder</th>"
+            f"<th class='lenscol'>lens score{_info('Founder Score adjusted for how well they fit your thesis. The list is ranked by this.')}</th>"
+            f"<th>founder score{_info('0-100. How much this person ships, thesis-blind. Deterministic - no AI.')}</th>"
+            f"<th>thesis fit{_info('How much their work matches your fund sectors. 1 keyword = 50%, 2+ = 100%.')}</th>"
+            f"<th>trend{_info('Did their Founder Score rise or fall over the last 30 days.')}</th>"
+            f"<th>sources{_info('Which platforms vouch for them. More sources = better corroborated.')}</th>"
+            f"<th>events{_info('How many signals back them = evidence depth, not quality.')}</th></tr>")
         lens_line = (
             f"<div class='card'><b>🔍 Fund lens: {esc(th['fund_name'])}</b>"
             f"<p class='note' style='margin:.35rem 0 0'>Every ranking is filtered &amp; "
@@ -381,8 +417,8 @@ def dashboard(n: int = 25, as_of: str | None = None, lens: str = "on"):
             f"<td class='num'>{b.n_events}</td></tr>"
             for i, (eid, name, b) in enumerate(ranked, 1)
         )
-        header = ("<tr><th>#</th><th>founder</th><th>score</th><th>trend</th>"
-                  "<th>sources</th><th>events</th></tr>")
+        header = (f"<tr><th>#</th><th>founder</th><th>founder score{_info('0-100. How much this person ships. Deterministic - no AI.')}</th>"
+                  "<th>trend</th><th>sources</th><th>events</th></tr>")
         lens_line = ("<div class='card'><b>Raw Founder Scores</b>"
                      "<p class='note' style='margin:.35rem 0 0'>No fund lens applied — "
                      "<a href='/'>back to thesis view</a></p></div>")
@@ -652,7 +688,7 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         )
 
     comps = "".join(
-        f"<tr><td>{comp.replace('_', ' ')}</td>"
+        f"<tr><td>{comp.replace('_', ' ')}{_info(COMP_HELP.get(comp, ''))}</td>"
         f"<td class='num' style='white-space:nowrap'>{pts} / {score.WEIGHTS[comp]}</td>"
         f"<td><div class='barrow'><div class='track'>"
         f"<i style='width:{(pts / score.WEIGHTS[comp] * 100):.0f}%'></i></div></div></td>"
@@ -678,8 +714,12 @@ def founder(entity_id: int, as_of: str | None = None, applied: int = 0):
         f"$100K decision →</a></div></div>"
     )
     body = (
+        f"<p><a class='btn ghost' href='/' style='margin-top:0'>← All founders</a></p>"
         f"{banner}{profile}"
-        f"<h3 class='reveal'>Score components — every point cites its evidence</h3>"
+        f"<h3 class='reveal'>How the Founder Score ({b.total}) was calculated{_info('Deterministic: same events in, same score out. No AI.')}</h3>"
+        f"<p class='note reveal' style='max-width:44rem'>The Founder Score is a 0-100 tally of "
+        f"how much this person ships — five weighted components that add up to 100. Every point "
+        f"cites the exact ledger events behind it (hover each component's ⓘ for what it measures).</p>"
         f"<div class='tablewrap reveal'><table>"
         f"<tr><th>component</th><th>points</th><th></th><th>evidence (click)</th></tr>{comps}"
         f"</table></div>{notes}"
@@ -865,13 +905,54 @@ def _render_claims(section: str, claims: list, verdicts: dict, start_idx: int,
     return "".join(out), idx
 
 
+def _memo_cached(conn, entity_id: int) -> bool:
+    return any(e["event_type"] == "memo"
+               for e in ledger.events_for(conn, entity_id))
+
+
+def _memo_loading_page(entity_id: int, name: str, fresh: bool):
+    """Instant page shown while the backend generates the memo (spinner + timer).
+    Client-side JS kicks off generation, shows elapsed time, then swaps in the memo."""
+    q = "?fresh=1" if fresh else ""
+    body = (
+        f"<p><a class='btn ghost' href='/founder/{entity_id}' style='margin-top:0'>← Back to founder</a></p>"
+        f"<div class='card genwrap'>"
+        f"<div class='spinner'></div>"
+        f"<h2 style='margin:1rem 0 .3rem'>Generating investment memo…</h2>"
+        f"<p class='note' style='max-width:34rem;margin:0 auto'>Running three axis agents, "
+        f"drafting an evidence-locked memo, and adversarially validating every claim against "
+        f"the ledger. Usually ~10–30 seconds.</p>"
+        f"<p style='margin-top:1rem'>elapsed <span class='elapsed' id='el'>0.0s</span></p></div>"
+        f"<script>"
+        f"var t0=Date.now(),el=document.getElementById('el');"
+        f"var iv=setInterval(function(){{el.textContent=((Date.now()-t0)/1000).toFixed(1)+'s';}},100);"
+        f"fetch('/memo/{entity_id}/generate{q}').then(function(r){{return r.json();}})"
+        f".then(function(){{clearInterval(iv);location.replace('/memo/{entity_id}');}})"
+        f".catch(function(){{clearInterval(iv);el.textContent='error — please retry';}});"
+        f"</script>"
+    )
+    return page(f"Generating memo — {name}", body)
+
+
+@app.get("/memo/{entity_id}/generate")
+def memo_generate(entity_id: int, fresh: int = 0):
+    """Blocking generation endpoint the loading page calls via fetch()."""
+    conn = db.connect()
+    intelligence.generate_memo(conn, entity_id, fresh=bool(fresh))
+    return JSONResponse({"ok": True})
+
+
 @app.get("/memo/{entity_id}", response_class=HTMLResponse)
 def memo_view(entity_id: int, fresh: int = 0):
     conn = db.connect()
     row = conn.execute("SELECT * FROM entities WHERE id=?", (entity_id,)).fetchone()
     if row is None:
         return page("Not found", "<p>No such entity.</p>")
-    r = intelligence.generate_memo(conn, entity_id, fresh=bool(fresh))
+    # If the memo must be built (or a regenerate was asked), show the loading
+    # page instead of blocking; it triggers generation and swaps itself out.
+    if fresh or not _memo_cached(conn, entity_id):
+        return _memo_loading_page(entity_id, row["canonical_name"], bool(fresh))
+    r = intelligence.generate_memo(conn, entity_id, fresh=False)
 
     axes_html = "".join(
         f"<div class='card axis reveal'><span class='axname'>{esc(ax)}</span>"
@@ -931,10 +1012,19 @@ def memo_view(entity_id: int, fresh: int = 0):
         f"thesis: {esc(r['thesis']['fund_name'])} · "
         f"<a href='/memo/{entity_id}?fresh=1'>regenerate</a> · "
         f"<a href='/founder/{entity_id}'>evidence timeline</a></p></div>"
+        f"<p class='eyebrow reveal' style='margin-bottom:.4rem'>The $100K decision</p>"
         f"{decision_html}"
+        f"<h3 class='reveal'>Evidence health{_info('How much of this memo is backed by verified evidence vs unverified or contradicted claims.')}</h3>"
         f"{trust_summary_html}"
-        f"<h3 class='reveal'>Three axes — scored independently, never averaged</h3>"
+        f"<h3 class='reveal'>Multi-axis screening{_info('Three independent report cards from the AI. Never averaged — the decision gate reads each separately.')}</h3>"
+        f"<p class='note reveal' style='margin-top:-.3rem;max-width:44rem'>Three report cards "
+        f"(Founder · Market · Idea), each 0–10, scored on its own slice of evidence so they "
+        f"can genuinely disagree. <b>Score</b> = how good; <b>confidence</b> = how sure the AI is.</p>"
         f"<div class='axes'>{axes_html}</div>"
+        f"<h3 class='reveal'>Evidence-locked memo{_info('Every claim cites its source events; each carries a deterministic Trust Score.')}</h3>"
+        f"<p class='note reveal' style='margin-top:-.3rem;max-width:44rem'>Each claim shows a "
+        f"colour-coded Trust Score — green = verified, amber = weak/inference, red = contradicted, "
+        f"grey = honestly flagged gap.</p>"
         f"{sections_html}"
         f"<p class='note reveal'>Trust is <b>deterministic</b>: the LLM only gives a "
         f"verdict; the score = citation validity × fact-grounding × source "
